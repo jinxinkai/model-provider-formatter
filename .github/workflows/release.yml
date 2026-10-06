@@ -1,0 +1,47 @@
+# 推送 v* 标签时发布：GitHub Release（自动生成说明 + 静态网页包）与 GHCR Docker 镜像。
+# 发布步骤：修改 package.json 的 version → 提交 → git tag v<version> → git push --tags
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.ref_name }}
+      IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+      - name: 标签必须与 package.json 版本一致
+        run: test "${VERSION#v}" = "$(node -p "require('./package.json').version")"
+
+      - name: 静态网页包（可直接部署到任意静态托管）
+        run: |
+          npm run build
+          (cd dist && zip -qr "../model-provider-formatter-web-$VERSION.zip" .)
+        env:
+          VITE_STATIC: 'true'
+
+      - name: 创建 GitHub Release
+        run: gh release create "$VERSION" "model-provider-formatter-web-$VERSION.zip" --generate-notes --verify-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: 发布 Docker 镜像到 GHCR
+        run: |
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build -t "$IMAGE:${VERSION#v}" -t "$IMAGE:latest" .
+          docker push --all-tags "$IMAGE"

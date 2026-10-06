@@ -36,6 +36,18 @@ node bin/cli.js --help --lang zh
 
 CLI 语言依次取 `--lang`、`MPF_LANG`、系统语言。
 
+## 发布
+
+推送 `v*` 标签会运行 `.github/workflows/release.yml`：跑测试，创建带自动说明的 GitHub Release 并附上静态网页包（`model-provider-formatter-web-<tag>.zip`，可部署到任意静态托管），同时把 Docker 镜像推送到 GHCR。
+
+```bash
+npm version patch          # 更新 package.json 并创建对应的 v* 标签
+git push --follow-tags
+docker run -d -p 127.0.0.1:15178:15178 ghcr.io/jinxinkai/model-provider-formatter:latest
+```
+
+标签必须与 `package.json` 的 `version` 一致，否则发布失败。
+
 ## 架构
 
 ```

@@ -36,6 +36,18 @@ node bin/cli.js --help --lang en
 
 The CLI language comes from `--lang`, then `MPF_LANG`, then the system locale.
 
+## Releases
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`: tests, a GitHub Release with generated notes plus a static web bundle (`model-provider-formatter-web-<tag>.zip`, deployable to any static host), and a Docker image on GHCR.
+
+```bash
+npm version patch          # bumps package.json and creates the matching v* tag
+git push --follow-tags
+docker run -d -p 127.0.0.1:15178:15178 ghcr.io/jinxinkai/model-provider-formatter:latest
+```
+
+The tag must match the `version` in `package.json`, otherwise the release fails.
+
 ## Architecture
 
 ```

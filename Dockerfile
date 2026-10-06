@@ -13,6 +13,7 @@ RUN npm run build
 
 # ── Runtime: Koa + production deps only ──
 FROM node:22-alpine
+LABEL org.opencontainers.image.source="https://github.com/jinxinkai/model-provider-formatter"
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=15178
