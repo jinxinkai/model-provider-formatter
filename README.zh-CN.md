@@ -24,7 +24,7 @@ docker compose up -d --build      # → http://127.0.0.1:15178
 
 端口默认只绑定 `127.0.0.1`；如需局域网访问，把 compose 中的端口改为 `"15178:15178"`（网络需可信）。容器内监听端口可通过 `PORT` 修改。
 
-GitHub Pages：<https://jinxinkai.github.io/model-provider-formatter/>。每次推送到 `main` 都会运行 `.github/workflows/ci.yml`（测试 → 静态构建 → 部署）。Pages 版（`VITE_STATIC=true`）没有 Koa 代理，「API 直连」由浏览器直接请求上游，需要上游允许跨域；粘贴和文件不受影响。
+GitHub Pages：<https://jinxinkai.github.io/model-provider-formatter/>。每次推送到默认分支（`main` 或 `master`）都会运行 `.github/workflows/ci.yml`（测试 → 静态构建 → 部署）。Pages 版（`VITE_STATIC=true`）没有 Koa 代理，「API 直连」由浏览器直接请求上游，需要上游允许跨域；粘贴和文件不受影响。
 
 命令行：
 

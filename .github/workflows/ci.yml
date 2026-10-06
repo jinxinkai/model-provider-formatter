@@ -1,9 +1,9 @@
-# 每次推送 / PR：测试 + 构建；推送到 main 时再把静态版前端部署到 GitHub Pages。
+# 每次推送 / PR：测试 + 构建；推送到默认分支（main 或 master）时再把静态版前端部署到 GitHub Pages。
 name: CI / Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
   workflow_dispatch:
 
@@ -26,13 +26,13 @@ jobs:
         env:
           VITE_STATIC: 'true'
       - uses: actions/upload-pages-artifact@v5
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
         with:
           path: dist
 
   deploy:
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     permissions:
       pages: write

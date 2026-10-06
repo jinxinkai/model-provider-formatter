@@ -24,7 +24,7 @@ docker compose up -d --build      # → http://127.0.0.1:15178
 
 The port is bound to `127.0.0.1` by default; for LAN access change it to `"15178:15178"` in the compose file (trusted networks only). Override the in-container port with `PORT`.
 
-GitHub Pages: <https://jinxinkai.github.io/model-provider-formatter/>. Every push to `main` runs `.github/workflows/ci.yml` (test → static build → deploy). The Pages build (`VITE_STATIC=true`) has no Koa proxy, so "Fetch API" calls the upstream straight from the browser and only works when the upstream allows CORS; Paste and File work everywhere.
+GitHub Pages: <https://jinxinkai.github.io/model-provider-formatter/>. Every push to the default branch (`main` or `master`) runs `.github/workflows/ci.yml` (test → static build → deploy). The Pages build (`VITE_STATIC=true`) has no Koa proxy, so "Fetch API" calls the upstream straight from the browser and only works when the upstream allows CORS; Paste and File work everywhere.
 
 CLI:
 
