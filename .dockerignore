@@ -1,0 +1,13 @@
+node_modules
+dist
+npm-debug.log
+.git
+.gitignore
+.claude
+test
+DESIGN.md
+README.md
+Dockerfile
+docker-compose.yml
+opencode.json
+cherry-studio-provider.json

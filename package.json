@@ -1,0 +1,30 @@
+{
+  "name": "model-provider-formatter",
+  "version": "0.1.0",
+  "description": "Convert OpenAI-compatible /v1/models lists into ready-to-use client configs (OpenCode, Cherry Studio).",
+  "type": "module",
+  "bin": {
+    "mpf": "bin/cli.js"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "dependencies": {
+    "@koa/bodyparser": "^6.1.0",
+    "@koa/router": "^15.7.0",
+    "koa": "^3.2.1",
+    "koa-static": "^5.0.0",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.9",
+    "vite": "^8.3.3",
+    "vue": "^3.5.43"
+  }
+}

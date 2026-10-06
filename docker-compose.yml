@@ -1,0 +1,10 @@
+services:
+  model-provider-formatter:
+    build: .
+    image: model-provider-formatter:latest
+    container_name: model-provider-formatter
+    restart: unless-stopped
+    # Bound to localhost only: /api/models forwards requests to arbitrary URLs.
+    # Change to "15178:15178" only on a trusted network.
+    ports:
+      - "127.0.0.1:15178:15178"
