@@ -39,6 +39,19 @@ test('OpenRouter-style entries', () => {
   });
 });
 
+test('gateway reasoning metadata (reasoning_efforts / always_reasoning / reasoning_can_disable)', () => {
+  const pick = (e) => {
+    const { reasoningMode, efforts } = normalizeEntry({ id: 'x', supports_reasoning: true, ...e });
+    return { reasoningMode, efforts };
+  };
+  assert.deepEqual(pick({ reasoning_efforts: ['low', 'high', 'max'], always_reasoning: true }), { reasoningMode: 'always', efforts: ['low', 'high', 'max'] });
+  assert.deepEqual(pick({ reasoning_efforts: ['low', 'high'], always_reasoning: true, reasoning_can_disable: true }), { reasoningMode: 'hybrid', efforts: ['low', 'high'] });
+  assert.deepEqual(pick({ reasoning_efforts: ['low', 'high'], always_reasoning: false }), { reasoningMode: 'hybrid', efforts: ['low', 'high'] });
+  assert.deepEqual(pick({ reasoning_fixed_effort: 'medium', always_reasoning: true }), { reasoningMode: 'always', efforts: [] });
+  assert.deepEqual(pick({ reasoning_efforts: ['high'], reasoning_can_disable: false, always_reasoning: true }), { reasoningMode: 'always', efforts: [] }, 'one level is not a choice');
+  assert.deepEqual(pick({}), { reasoningMode: undefined, efforts: undefined });
+});
+
 test('bare arrays, { models: [] } and string lists', () => {
   assert.equal(ingest(['a', 'b', 'a']).models.length, 2);
   assert.equal(ingest({ models: [{ name: 'llama3:8b', model: 'llama3:8b' }] }).models[0].id, 'llama3:8b');

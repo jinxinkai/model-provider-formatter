@@ -10,9 +10,10 @@ const MESSAGES = {
   zh: {
     'nav.opencodeDocs': 'OpenCode 文档',
     'nav.cherryDocs': 'Cherry Studio 文档',
+    'nav.vscodeDocs': 'VS Code 文档',
     'nav.switch': 'EN',
     'hero.titleHtml': '把任意 <code>/v1/models</code> 变成<span class="hl">开箱即用</span>的客户端配置',
-    'hero.lede': '拉取上游模型列表 → 自动补齐上下文、输出上限、视觉与推理能力 → 生成 OpenCode / Cherry Studio 配置。',
+    'hero.lede': '拉取上游模型列表 → 自动补齐上下文、输出上限、视觉与推理能力 → 生成 OpenCode / Cherry Studio / VS Code Copilot 配置。',
 
     'source.title': '上游输入',
     'source.tab.api': 'API 直连',
@@ -32,6 +33,7 @@ const MESSAGES = {
     'provider.name': '显示名称',
     'provider.keyMode': 'API Key 写入方式',
     'provider.keyMode.env': '环境变量 {env:…}',
+    'provider.keyMode.env.vscode': '输入变量 ${input:…}',
     'provider.keyMode.inline': '明文写入配置',
     'provider.keyMode.none': '不写入',
     'provider.variants': '推理变体',
@@ -42,6 +44,8 @@ const MESSAGES = {
     'provider.hint.inline': 'API Key 将以明文写入配置文件，请勿提交到代码仓库。',
     'provider.hint.noKey': '未填写 API Key：请在「API 直连」中填写。',
     'provider.hint.none': '不写入 apiKey，可在 OpenCode 中通过 /connect 录入。',
+    'provider.hint.vscode.envHtml': '配置中写入 <code>{var}</code>，VS Code 首次使用时提示输入 Key 并存入 Secret Storage。',
+    'provider.hint.vscode.none': '不写入 apiKey，可在 VS Code「Manage Language Models」中为该提供商填写。',
 
     'models.title': '模型与能力',
     'models.meta': '{source} · {total} 个模型 · 启用 {enabled} · 上游提供上下文 {upstream} 个，其余由规则补全',
@@ -75,6 +79,7 @@ const MESSAGES = {
     'type.audio': '语音',
     'type.video': '视频',
     'type.moderation': '审核',
+    'src.doc': '官方',
     'src.upstream': '上游',
     'src.rule': '规则',
     'src.default': '默认',
@@ -90,13 +95,15 @@ const MESSAGES = {
     'output.hint.opencodeHtml': '保存到 <code>~/.config/opencode/opencode.json</code>（全局）或项目根目录；已有配置时合并 <code>provider</code> 段即可。',
     'output.hint.cherry': '一键导入会创建提供商并写入 Key；随后在「管理」中添加模型，能力标签可参照下方 JSON。',
     'output.hint.cherryNoKey': '一键导入需要 API Key，请在「API 直连」中填写。',
+    'output.hint.vscodeHtml': '运行 <code>Chat: Manage Language Models</code> → Add Models → Custom Endpoint，把数组中的对象合并进打开的 <code>chatLanguageModels.json</code>；模型未出现时重启 VS Code。',
   },
   en: {
     'nav.opencodeDocs': 'OpenCode docs',
     'nav.cherryDocs': 'Cherry Studio docs',
+    'nav.vscodeDocs': 'VS Code docs',
     'nav.switch': '中文',
     'hero.titleHtml': 'Turn any <code>/v1/models</code> into <span class="hl">ready-to-use</span> client configs',
-    'hero.lede': 'Fetch the upstream model list → fill in context, max output, vision and reasoning → generate OpenCode / Cherry Studio configs.',
+    'hero.lede': 'Fetch the upstream model list → fill in context, max output, vision and reasoning → generate OpenCode / Cherry Studio / VS Code Copilot configs.',
 
     'source.title': 'Upstream input',
     'source.tab.api': 'Fetch API',
@@ -116,6 +123,7 @@ const MESSAGES = {
     'provider.name': 'Display name',
     'provider.keyMode': 'API key in config',
     'provider.keyMode.env': 'Environment variable {env:…}',
+    'provider.keyMode.env.vscode': 'Input variable ${input:…}',
     'provider.keyMode.inline': 'Inline (plain text)',
     'provider.keyMode.none': 'Omit',
     'provider.variants': 'Reasoning variants',
@@ -126,6 +134,8 @@ const MESSAGES = {
     'provider.hint.inline': 'The API key is written in plain text; do not commit this file.',
     'provider.hint.noKey': 'No API key yet: enter it under “Fetch API”.',
     'provider.hint.none': 'apiKey is omitted; add it in OpenCode with /connect.',
+    'provider.hint.vscode.envHtml': 'Writes <code>{var}</code>; VS Code prompts for the key on first use and keeps it in Secret Storage.',
+    'provider.hint.vscode.none': 'apiKey is omitted; set it for this provider under “Manage Language Models” in VS Code.',
 
     'models.title': 'Models & capabilities',
     'models.meta': '{source} · {total} models · {enabled} enabled · {upstream} with upstream context, the rest inferred by rules',
@@ -159,6 +169,7 @@ const MESSAGES = {
     'type.audio': 'Audio',
     'type.video': 'Video',
     'type.moderation': 'Moderation',
+    'src.doc': 'Official',
     'src.upstream': 'Upstream',
     'src.rule': 'Rule',
     'src.default': 'Default',
@@ -174,6 +185,7 @@ const MESSAGES = {
     'output.hint.opencodeHtml': 'Save to <code>~/.config/opencode/opencode.json</code> (global) or the project root; merge the <code>provider</code> block into an existing config.',
     'output.hint.cherry': 'One-click import creates the provider with your key; then add models under “Manage” using the capabilities in the JSON below.',
     'output.hint.cherryNoKey': 'One-click import needs an API key; enter it under “Fetch API”.',
+    'output.hint.vscodeHtml': 'Run <code>Chat: Manage Language Models</code> → Add Models → Custom Endpoint and merge the object in this array into the <code>chatLanguageModels.json</code> it opens; restart VS Code if the models don’t appear.',
   },
 };
 
@@ -191,7 +203,6 @@ function initialLocale() {
   return navigator.language?.startsWith('zh') ? 'zh' : 'en';
 }
 
-/** 当前界面语言 */
 export const locale = ref(initialLocale());
 
 watchEffect(() => {
@@ -201,7 +212,6 @@ watchEffect(() => {
   } catch {}
 });
 
-/** 切换中英文 */
 export const toggleLocale = () => {
   locale.value = locale.value === 'zh' ? 'en' : 'zh';
 };

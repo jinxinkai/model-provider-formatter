@@ -72,7 +72,7 @@ const meta = computed(() => {
 
     <p class="legend">
       {{ t('models.legend') }}
-      <SourceBadge v-for="s in ['upstream', 'rule:', 'default', 'override']" :key="s" :source="s" />
+      <SourceBadge v-for="s in ['doc:', 'upstream', 'rule:', 'default', 'override']" :key="s" :source="s" />
       {{ t('models.legendHint') }}
     </p>
   </section>

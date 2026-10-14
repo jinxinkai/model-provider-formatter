@@ -30,7 +30,6 @@ async function copy() {
   setTimeout(() => (copyKey.value = 'output.copy'), 1500);
 }
 
-/** 以文件形式下载当前配置 */
 function download() {
   const url = URL.createObjectURL(new Blob([json.value + '\n'], { type: 'application/json' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: result.value.filename });
@@ -52,10 +51,10 @@ const canOpenCherry = computed(() => Boolean(state.apiKey));
     </div>
 
     <div class="row out-actions">
-      <template v-if="state.target === 'opencode'">
+      <template v-if="state.target !== 'cherry'">
         <button class="btn btn-primary" @click="download">{{ t('output.downloadFile', { file: result.filename }) }}</button>
         <button class="btn btn-ghost" @click="copy">{{ t(copyKey) }}</button>
-        <span class="hint" v-html="t('output.hint.opencodeHtml')"></span>
+        <span class="hint" v-html="t(`output.hint.${state.target}Html`)"></span>
       </template>
       <template v-else>
         <a class="btn btn-primary" :class="{ disabled: !canOpenCherry }" :href="canOpenCherry ? result.deepLink : undefined" :aria-disabled="!canOpenCherry">{{ t('output.openCherry') }}</a>

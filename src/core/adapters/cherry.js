@@ -35,11 +35,7 @@ const cherryHost = (baseURL) => (baseURL.endsWith('/') ? baseURL : `${baseURL}/`
  */
 const base64 = (str) => btoa(String.fromCharCode(...new TextEncoder().encode(str)));
 
-/**
- * 生成一键导入提供商的 DeepLink。
- * @param {import('../pipeline.js').Provider} provider
- * @returns {string}
- */
+/** @param {import('../pipeline.js').Provider} provider */
 export function cherryDeepLink(provider) {
   const data = {
     id: provider.id,
@@ -52,7 +48,7 @@ export function cherryDeepLink(provider) {
 }
 
 /**
- * 生成 Cherry Studio 提供商导入包（仅包含启用的模型）。
+ * 导入包只包含启用的模型。
  * @param {import('../enrich.js').NormalizedModel[]} models
  * @param {import('../pipeline.js').Provider} provider
  * @returns {object}

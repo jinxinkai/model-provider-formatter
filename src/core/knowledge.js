@@ -5,6 +5,9 @@
  * 规则自上而下求值，每个字段取**第一条**定义了它的规则，因此：
  * 1. id 标记规则（-thinking、-instruct、vl、embedding…）排最前，它们描述的是具体 checkpoint；
  * 2. 具体版本规则排在家族通用规则之前。
+ *
+ * 带 doc 的规则取自官方文档，其字段优先于上游返回值（网关常报错或按自身配额截断）；
+ * 不带 doc 的规则只是推断，上游有值时让位于上游。
  */
 
 /**
@@ -26,12 +29,18 @@
 
 /**
  * @typedef {object} Rule
- * @property {string} key 规则名，出现在字段来源中（rule:<key>）
+ * @property {string} key 规则名，出现在字段来源中（rule:<key>，带 doc 时为 doc:<key>）
  * @property {RegExp} match
+ * @property {string} [doc] 官方文档地址；有值时规则字段优先于上游
  * @property {RuleValues | ((m: RegExpExecArray) => RuleValues)} set
  */
 
 const EFFORT_3 = ['low', 'medium', 'high'];
+const EFFORT_TO_MAX = ['low', 'medium', 'high', 'xhigh', 'max'];
+const LOW_HIGH_MAX = ['low', 'high', 'max'];
+/** 厂商标注为 "1M" 的上下文 */
+const M1 = 1048576;
+const OPENAI_DOC = 'https://developers.openai.com/api/docs/models/';
 const THINK_TOGGLE = ['enabled', 'disabled'];
 const THINK_AUTO = ['enabled', 'disabled', 'auto'];
 const QWEN_TOGGLE = [true, false];
@@ -58,6 +67,11 @@ export const RULES = [
   { key: 'openai:gpt-5-chat', match: /gpt-5(\.\d+)?-chat/, set: { family: 'openai', context: 128000, output: 16384, reasoning: 'none', vision: true } },
   { key: 'openai:gpt-5-codex', match: /gpt-5(\.\d+)?(-\w+)?-codex/, set: { family: 'openai', context: 400000, output: 128000, reasoning: 'always', control: 'effort', efforts: EFFORT_3, vision: true } },
   { key: 'openai:gpt-5.0', match: /(^|\/)gpt-5($|-(mini|nano|pro|\d{4}))/, set: { family: 'openai', context: 400000, output: 128000, reasoning: 'always', control: 'effort', efforts: ['minimal', 'low', 'medium', 'high'], vision: true } },
+  { key: 'openai:gpt-6.1-sol', match: /(^|\/)gpt-6\.1-sol/, doc: `${OPENAI_DOC}gpt-6.1-sol`, set: { family: 'openai', context: 1050000, output: 128000, reasoning: 'always', control: 'effort', efforts: EFFORT_TO_MAX, vision: true, toolCall: true } },
+  { key: 'openai:gpt-6-astra', match: /(^|\/)gpt-6-astra/, doc: `${OPENAI_DOC}gpt-6-astra`, set: { family: 'openai', context: 1050000, output: 128000, reasoning: 'always', control: 'effort', efforts: EFFORT_TO_MAX, vision: true, toolCall: true } },
+  { key: 'openai:gpt-6', match: /(^|\/)gpt-6-(sol|luna)/, doc: `${OPENAI_DOC}gpt-6-sol`, set: { family: 'openai', context: 1050000, output: 128000, reasoning: 'hybrid', control: 'effort', efforts: ['none', ...EFFORT_TO_MAX], vision: true, toolCall: true } },
+  { key: 'openai:gpt-5.6', match: /(^|\/)gpt-5\.6-(sol|terra|luna)/, doc: `${OPENAI_DOC}gpt-5.6-sol`, set: { family: 'openai', context: 1050000, output: 128000, reasoning: 'hybrid', control: 'effort', efforts: ['none', ...EFFORT_TO_MAX], vision: true, toolCall: true } },
+  { key: 'openai:gpt-5.4-5.5', match: /(^|\/)gpt-5\.[45]($|-\d{4})/, doc: `${OPENAI_DOC}gpt-5.5`, set: { family: 'openai', context: 1050000, output: 128000, reasoning: 'hybrid', control: 'effort', efforts: ['none', 'low', 'medium', 'high', 'xhigh'], vision: true, toolCall: true } },
   { key: 'openai:gpt-5.1', match: /(^|\/)gpt-5\.1/, set: { family: 'openai', context: 400000, output: 128000, reasoning: 'hybrid', control: 'effort', efforts: ['none', 'low', 'medium', 'high'], vision: true } },
   { key: 'openai:gpt-5.x', match: /(^|\/)gpt-5\.\d+/, set: { family: 'openai', context: 400000, output: 128000, reasoning: 'hybrid', control: 'effort', efforts: ['none', 'low', 'medium', 'high', 'xhigh'], vision: true } },
   { key: 'openai:o-series', match: /(^|\/)o[134](-|$)/, set: { family: 'openai', context: 200000, output: 100000, reasoning: 'always', control: 'effort', efforts: EFFORT_3, vision: true } },
@@ -75,6 +89,9 @@ export const RULES = [
   { key: 'anthropic:claude', match: /claude/, set: { family: 'anthropic', context: 200000, output: 4096, reasoning: 'none', vision: true } },
 
   // ───────────── 4. Google ─────────────
+  // OpenAI 兼容层 reasoning_effort 直接映射 thinking_level；Gemini 3 不能关闭思考（https://ai.google.dev/gemini-api/docs/openai）
+  { key: 'google:gemini-3.8-flash', match: /gemini-3\.8-flash/, doc: 'https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash', set: { family: 'google', context: 1048576, output: 65536, reasoning: 'always', control: 'effort', efforts: EFFORT_3, vision: true, toolCall: true } },
+  { key: 'google:gemini-3.5-flash', match: /gemini-3\.5-flash/, doc: 'https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash', set: { family: 'google', context: 1048576, output: 65536, reasoning: 'always', control: 'effort', efforts: ['minimal', ...EFFORT_3], vision: true, toolCall: true } },
   { key: 'google:gemini-3', match: /gemini-3/, set: { family: 'google', context: 1048576, output: 65536, reasoning: 'hybrid', control: 'effort', efforts: ['low', 'high'], vision: true } },
   { key: 'google:gemini-2.5', match: /gemini-2\.5/, set: { family: 'google', context: 1048576, output: 65536, reasoning: 'hybrid', control: 'effort', efforts: EFFORT_3, vision: true } },
   { key: 'google:gemini', match: /gemini/, set: { family: 'google', context: 1048576, output: 8192, reasoning: 'none', vision: true } },
@@ -82,7 +99,9 @@ export const RULES = [
   { key: 'google:gemma', match: /gemma/, set: { family: 'google', context: 8192, output: 4096, reasoning: 'none' } },
 
   // ───────────── 5. DeepSeek ─────────────
-  { key: 'deepseek:v4', match: /deepseek-v4/, set: { family: 'deepseek', context: 1000000, output: 384000, reasoning: 'hybrid', control: 'thinking-type', efforts: THINK_TOGGLE, interleaved: 'reasoning_content', vision: false } },
+  // 限额与视觉见定价页；思考可关闭，reasoning_effort 只有 low / high / max，默认 high（https://api-docs.deepseek.com/guides/thinking_mode）
+  { key: 'deepseek:v4-flash', match: /deepseek-(v4(\.\d+)?-)?flash/, doc: 'https://api-docs.deepseek.com/quick_start/pricing', set: { family: 'deepseek', vision: true } },
+  { key: 'deepseek:v4', match: /deepseek-v4/, doc: 'https://api-docs.deepseek.com/quick_start/pricing', set: { family: 'deepseek', context: M1, output: 393216, reasoning: 'hybrid', control: 'effort', efforts: LOW_HIGH_MAX, interleaved: 'reasoning_content', vision: false, toolCall: true } },
   { key: 'deepseek:v3.1+', match: /deepseek-v3\.[1-9]/, set: { family: 'deepseek', context: 128000, output: 32768, reasoning: 'hybrid', control: 'thinking-type', efforts: THINK_TOGGLE, interleaved: 'reasoning_content', vision: false } },
   { key: 'deepseek:r1-0528', match: /deepseek-r1-0528/, set: { family: 'deepseek', toolCall: true } },
   { key: 'deepseek:r1-distill', match: /deepseek-r1-distill/, set: { family: 'deepseek', context: 131072, output: 16384, reasoning: 'always', toolCall: false } },
@@ -113,7 +132,11 @@ export const RULES = [
 
   // ───────────── 7. 智谱 GLM ─────────────
   { key: 'glm:4.xv', match: /glm-4(\.\d+)?v/, set: { family: 'zhipu', context: 131072, output: 32768, reasoning: 'hybrid', control: 'thinking-type', efforts: THINK_TOGGLE, vision: true } },
-  { key: 'glm:5.2+', match: /glm-5\.([2-9]|\d{2})/, set: { family: 'zhipu', context: 1000000, output: 131072 } },
+  // reasoning_effort 取值与 max_tokens 上限见 https://docs.bigmodel.cn/cn/guide/start/concept-param ；5.3 起强制思考
+  { key: 'glm:5.3-flash', match: /glm-5\.3-flash/, doc: 'https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash', set: { family: 'zhipu', vision: true } },
+  { key: 'glm:5.3', match: /glm-5\.3/, doc: 'https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3', set: { family: 'zhipu', context: M1, output: 131072, reasoning: 'always', control: 'effort', efforts: LOW_HIGH_MAX, vision: false } },
+  { key: 'glm:5.2', match: /glm-5\.2/, doc: 'https://docs.bigmodel.cn/cn/guide/start/concept-param', set: { family: 'zhipu', output: 131072, reasoning: 'hybrid', control: 'effort', efforts: ['none', 'minimal', ...EFFORT_TO_MAX] } },
+  { key: 'glm:5.2+', match: /glm-5\.([2-9]|\d{2})/, set: { family: 'zhipu', context: M1, output: 131072 } },
   { key: 'glm:5', match: /glm-5/, set: { family: 'zhipu', context: 200000, output: 131072, reasoning: 'hybrid', control: 'thinking-type', efforts: THINK_TOGGLE, interleaved: 'reasoning_content', vision: false } },
   { key: 'glm:4.6-4.7', match: /glm-4\.[6-9]/, set: { family: 'zhipu', context: 200000, output: 131072, reasoning: 'hybrid', control: 'thinking-type', efforts: THINK_TOGGLE, interleaved: 'reasoning_content', vision: false } },
   { key: 'glm:4.5', match: /glm-4\.5/, set: { family: 'zhipu', context: 131072, output: 98304, reasoning: 'hybrid', control: 'thinking-type', efforts: THINK_TOGGLE, vision: false } },
@@ -121,7 +144,11 @@ export const RULES = [
   { key: 'glm', match: /glm/, set: { family: 'zhipu', context: 128000, output: 4096, reasoning: 'none' } },
 
   // ───────────── 8. 月之暗面 Kimi ─────────────
-  { key: 'kimi:k3', match: /kimi-k3/, set: { family: 'moonshot', context: 1048576, output: 131072, reasoning: 'hybrid', control: 'thinking-type', efforts: THINK_TOGGLE, interleaved: 'reasoning_content', vision: true } },
+  // K3 始终思考，顶层 reasoning_effort（https://platform.kimi.com/docs/guide/use-thinking-effort）；max_completion_tokens 默认 131072
+  { key: 'kimi:k3', match: /kimi-k3/, doc: 'https://platform.kimi.ai/docs/guide/kimi-k3-quickstart', set: { family: 'moonshot', context: M1, output: 131072, reasoning: 'always', control: 'effort', efforts: LOW_HIGH_MAX, interleaved: 'reasoning_content', vision: true } },
+  // K2.8 Preview 仅在 Kimi Code 提供，无 API 文档
+  { key: 'kimi:k2.8', match: /kimi-k2\.8/, set: { family: 'moonshot', context: M1, output: 32768, reasoning: 'always', control: 'effort', efforts: LOW_HIGH_MAX, interleaved: 'reasoning_content', vision: true } },
+  { key: 'kimi:k2.6-2.7', match: /kimi-k2\.[67]/, doc: 'https://platform.kimi.com/docs/guide/kimi-k2-6-quickstart', set: { family: 'moonshot', context: 262144, output: 32768, reasoning: 'hybrid', control: 'thinking-type', efforts: THINK_TOGGLE, interleaved: 'reasoning_content', vision: true } },
   { key: 'kimi:k2.5+', match: /kimi-k2\.[5-9]/, set: { family: 'moonshot', context: 262144, output: 65536, reasoning: 'hybrid', control: 'thinking-type', efforts: THINK_TOGGLE, interleaved: 'reasoning_content', vision: true } },
   { key: 'kimi:k2-thinking', match: /kimi-k2.*thinking/, set: { family: 'moonshot', context: 262144, output: 65536, interleaved: 'reasoning_content' } },
   { key: 'kimi:k2', match: /kimi-k2/, set: { family: 'moonshot', context: 262144, output: 16384, reasoning: 'none', vision: false } },
@@ -146,12 +173,14 @@ export const RULES = [
 
   // ───────────── 11. 其他 ─────────────
   { key: 'xai:grok-code', match: /grok-code/, set: { family: 'xai', context: 256000, output: 10000, reasoning: 'always', vision: false } },
+  { key: 'xai:grok-4.7', match: /grok-4\.7/, doc: 'https://docs.x.ai/developers/grok-4-7', set: { family: 'xai', context: 500000, reasoning: 'always', control: 'effort', efforts: ['low', 'medium', 'high', 'xhigh'], vision: true, toolCall: true } },
   { key: 'xai:grok-4', match: /grok-4/, set: { family: 'xai', context: 256000, output: 64000, reasoning: 'always', vision: true } },
   { key: 'xai:grok-3-mini', match: /grok-3-mini/, set: { family: 'xai', context: 131072, output: 16384, reasoning: 'always', control: 'effort', efforts: ['low', 'high'] } },
   { key: 'xai:grok', match: /grok/, set: { family: 'xai', context: 131072, output: 16384, reasoning: 'none' } },
   { key: 'meituan:longcat-thinking', match: /longcat.*thinking/, set: { family: 'meituan', context: 131072, output: 65536 } },
   { key: 'meituan:longcat', match: /longcat/, set: { family: 'meituan', context: 131072, output: 65536, reasoning: 'none' } },
   { key: 'tencent:hunyuan', match: /hunyuan|(^|\/)hy\d/, set: { family: 'tencent', context: 262144, output: 32768 } },
+  { key: 'stepfun:step-5', match: /(^|\/)step-5/, doc: 'https://platform.stepfun.com/docs/zh/guides/models/step-5-preview', set: { family: 'stepfun', context: M1, output: 65536, reasoning: 'always', control: 'effort', efforts: EFFORT_3 } },
   { key: 'stepfun', match: /(^|\/)step-/, set: { family: 'stepfun', context: 65536, output: 16384 } },
   { key: 'xiaomi:mimo', match: /mimo/, set: { family: 'xiaomi', context: 262144, output: 65536 } },
   { key: 'baidu:ernie-x', match: /ernie-x/, set: { family: 'baidu', context: 32768, output: 16384, reasoning: 'always' } },

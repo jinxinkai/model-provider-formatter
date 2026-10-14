@@ -14,7 +14,6 @@ import { fill, localize } from '../src/core/i18n.js';
 
 const TARGET_NAMES = Object.keys(TARGETS).join(' | ');
 
-/** CLI 文案 */
 const MESSAGES = {
   zh: {
     help: `用法: mpf [选项]
@@ -30,7 +29,7 @@ const MESSAGES = {
   -o, --out <file>          输出文件（默认打印到 stdout）
       --provider-id <id>    提供商 ID（默认由域名推断）
       --name <name>         提供商显示名
-      --key-mode <mode>     env | inline | none：配置中 apiKey 的写法（默认 env → {env:XXX_API_KEY}）
+      --key-mode <mode>     env | inline | none：配置中 apiKey 的写法（默认 env → OpenCode {env:XXX_API_KEY} / VS Code \${input:xxxApiKey}）
       --variants <style>    auto | effort | off：推理变体的生成方式（默认 auto）
       --include-all         同时启用非对话模型（embedding / 图像 / 语音等）
       --report              在 stderr 打印每个模型的补全结果
@@ -55,7 +54,7 @@ Options:
   -o, --out <file>          Output file (prints to stdout by default)
       --provider-id <id>    Provider ID (inferred from the domain by default)
       --name <name>         Provider display name
-      --key-mode <mode>     env | inline | none: how apiKey is written (default env → {env:XXX_API_KEY})
+      --key-mode <mode>     env | inline | none: how apiKey is written (default env → OpenCode {env:XXX_API_KEY} / VS Code \${input:xxxApiKey})
       --variants <style>    auto | effort | off: how reasoning variants are generated (default auto)
       --include-all         Also enable non-chat models (embedding / image / audio …)
       --report              Print per-model enrichment results to stderr
@@ -91,7 +90,6 @@ const { values: args } = parseArgs({
 const lang = (args.lang || process.env.MPF_LANG || Intl.DateTimeFormat().resolvedOptions().locale).startsWith('zh') ? 'zh' : 'en';
 
 /**
- * 翻译 CLI 文案。
  * @param {keyof MESSAGES['zh']} key
  * @param {Record<string, unknown>} [params]
  */

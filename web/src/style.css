@@ -167,6 +167,9 @@ table.models { border-collapse: collapse; width: 100%; min-width: 880px; font-si
 .src { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ash); margin-right: 10px; }
 .src::before { content: ''; width: 6px; height: 6px; border-radius: 9999px; background: currentColor; }
 td .src { margin: 2px 0 0; justify-content: flex-end; display: flex; }
+.src-doc { color: var(--ink); font-weight: 600; text-decoration: none; }
+.src-doc::before { box-shadow: 0 0 0 2px var(--sky); }
+.src-doc:hover { text-decoration: underline; }
 .src-upstream { color: var(--ink); }
 .src-rule { color: var(--warm); }
 .src-default { color: var(--muted); }

@@ -72,19 +72,11 @@ watch(
 );
 
 /**
- * 设置状态栏。
- * @param {Status} status
- */
-export function setStatus(status) {
-  state.status = status;
-}
-
-/**
  * 以错误设置状态栏：AppError 按 key 渲染，其余显示原文。
  * @param {Error} err
  */
 export function setError(err) {
-  setStatus(err instanceof AppError ? { kind: 'err', key: err.key, params: err.params } : { kind: 'err', text: err.message });
+  state.status = err instanceof AppError ? { kind: 'err', key: err.key, params: err.params } : { kind: 'err', text: err.message };
 }
 
 /**
@@ -111,7 +103,7 @@ function loadModels({ models, source, baseURL }) {
   if (baseURL) setProviderBase(baseURL);
   if (!state.provider.id) state.provider.id = 'custom';
   const chat = result.value.models.filter((m) => m.type === 'chat').length;
-  setStatus({ kind: 'ok', key: 'status.loaded', params: { source, total: models.length, chat } });
+  state.status = { kind: 'ok', key: 'status.loaded', params: { source, total: models.length, chat } };
 }
 
 /**
@@ -131,12 +123,14 @@ async function requestModels(url) {
   return body;
 }
 
-/** 拉取并载入上游模型列表 */
 export async function fetchFromApi() {
   const url = state.apiUrl.trim();
-  if (!url) return setStatus({ kind: 'err', key: 'api.missingUrl' });
+  if (!url) {
+    state.status = { kind: 'err', key: 'api.missingUrl' };
+    return;
+  }
   state.loading = true;
-  setStatus({ kind: '', key: 'status.fetching' });
+  state.status = { kind: '', key: 'status.fetching' };
   try {
     const { payload, baseURL } = await requestModels(url);
     loadModels({ ...ingest(payload), baseURL });

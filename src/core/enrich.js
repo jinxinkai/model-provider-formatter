@@ -1,6 +1,6 @@
 /**
  * @file 元数据增强引擎：RawModel → NormalizedModel（各适配器共用的中间表示）。
- * 每个字段的取值优先级：手动覆盖 > 上游值 > 知识库规则 > 兜底默认值。
+ * 每个字段的取值优先级：手动覆盖 > 官方文档规则 > 上游值 > 推断规则 > 兜底默认值。
  */
 
 import { RULES, DEFAULTS } from './knowledge.js';
@@ -19,7 +19,7 @@ import { RULES, DEFAULTS } from './knowledge.js';
  * @property {string | null} interleaved 多轮对话需回传的思考字段
  * @property {Record<string, object>} variants 推理变体名 → 请求参数
  * @property {boolean} disabled
- * @property {Record<string, string>} sources 字段来源：'override' | 'upstream' | 'rule:<key>' | 'default'
+ * @property {Record<string, string>} sources 字段来源：'override' | 'doc:<key>' | 'upstream' | 'rule:<key>' | 'default'
  * @property {Array<{ key: string, params?: object }>} notes 补全提示（文案 key，见 i18n.js）
  */
 
@@ -42,7 +42,7 @@ const GENERIC_OWNERS = ['system', 'openai', 'library', 'organization-owner'];
 /**
  * 合并命中的规则：每个字段取第一条定义了它的规则。
  * @param {string} id
- * @returns {{ values: import('./knowledge.js').RuleValues, from: Record<string, string> }} from 记录字段来自哪条规则
+ * @returns {{ values: import('./knowledge.js').RuleValues, from: Record<string, string> }} from 记录字段来自哪条规则（doc:<key> / rule:<key>）
  */
 function matchRules(id) {
   const lid = id.toLowerCase();
@@ -55,7 +55,7 @@ function matchRules(id) {
     for (const f of RULE_FIELDS) {
       if (set[f] !== undefined && values[f] === undefined) {
         values[f] = set[f];
-        from[f] = `rule:${rule.key}`;
+        from[f] = `${rule.doc ? 'doc' : 'rule'}:${rule.key}`;
       }
     }
   }
@@ -122,7 +122,19 @@ function buildVariants({ type, reasoning, control, efforts = [] }, style = 'auto
 }
 
 /**
- * 增强单个模型。
+ * 上游给出的推理模式。上游只给布尔值时，为 true 则沿用规则里更细的模式（always / hybrid）。
+ * @param {import('./ingest.js').RawModel} raw
+ * @param {'none'|'always'|'hybrid'} [ruleMode]
+ * @returns {'none'|'always'|'hybrid' | undefined}
+ */
+function upstreamReasoning(raw, ruleMode) {
+  if (raw.reasoning === false) return 'none';
+  if (raw.reasoningMode) return raw.reasoningMode;
+  if (raw.reasoning === undefined) return undefined;
+  return ruleMode && ruleMode !== 'none' ? ruleMode : 'always';
+}
+
+/**
  * @param {import('./ingest.js').RawModel} raw
  * @param {Override} [override]
  * @param {{ variantStyle?: 'auto'|'effort'|'off' }} [opts]
@@ -133,13 +145,16 @@ export function enrichModel(raw, override = {}, opts = {}) {
   const sources = {};
   const notes = [];
 
+  const official = (field) => matched.from[field]?.startsWith('doc:');
+
   /** 按优先级取值并记录来源 */
   const pick = (field, upstream, ruleVal, def) => {
     const [source, value] =
       override[field] !== undefined ? ['override', override[field]]
-        : upstream !== undefined ? ['upstream', upstream]
-          : ruleVal !== undefined ? [matched.from[field], ruleVal]
-            : ['default', def];
+        : ruleVal !== undefined && official(field) ? [matched.from[field], ruleVal]
+          : upstream !== undefined ? ['upstream', upstream]
+            : ruleVal !== undefined ? [matched.from[field], ruleVal]
+              : ['default', def];
     sources[field] = source;
     return value;
   };
@@ -157,11 +172,9 @@ export function enrichModel(raw, override = {}, opts = {}) {
     output = context;
   }
 
-  // 上游只给布尔值：为 true 时沿用规则里更细的模式（always / hybrid）
-  const upstreamReasoning = raw.reasoning === undefined ? undefined
-    : !raw.reasoning ? 'none'
-      : rule.reasoning && rule.reasoning !== 'none' ? rule.reasoning : 'always';
-  const reasoning = pick('reasoning', upstreamReasoning, rule.reasoning, d.reasoning);
+  const reasoning = pick('reasoning', upstreamReasoning(raw, rule.reasoning), rule.reasoning, d.reasoning);
+  // 档位同样是官方文档 > 上游列表 > 推断规则
+  const [control, efforts] = raw.efforts && !(rule.efforts && official('efforts')) ? ['effort', raw.efforts] : [rule.control, rule.efforts];
 
   if (!isChat && override.disabled === undefined) notes.push({ key: 'note.nonChat', params: { type } });
 
@@ -176,7 +189,7 @@ export function enrichModel(raw, override = {}, opts = {}) {
     coder: Boolean(rule.coder),
     reasoning,
     interleaved: reasoning === 'none' ? null : rule.interleaved || null,
-    variants: buildVariants({ type, reasoning, control: rule.control, efforts: rule.efforts }, opts.variantStyle),
+    variants: buildVariants({ type, reasoning, control, efforts }, opts.variantStyle),
     disabled: override.disabled ?? !isChat,
     sources,
     notes,
@@ -184,7 +197,6 @@ export function enrichModel(raw, override = {}, opts = {}) {
 }
 
 /**
- * 批量增强。
  * @param {import('./ingest.js').RawModel[]} raws
  * @param {{ overrides?: Record<string, Override>, variantStyle?: 'auto'|'effort'|'off' }} [opts]
  * @returns {NormalizedModel[]}

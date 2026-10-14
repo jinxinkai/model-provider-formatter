@@ -18,6 +18,7 @@ import { t, toggleLocale } from './i18n.js';
       <nav class="nav-links">
         <a href="https://opencode.ai/docs/providers/" target="_blank" rel="noreferrer">{{ t('nav.opencodeDocs') }}</a>
         <a href="https://docs.cherry-ai.com/" target="_blank" rel="noreferrer">{{ t('nav.cherryDocs') }}</a>
+        <a href="https://code.visualstudio.com/docs/agent-customization/language-models#_add-a-custom-endpoint-model" target="_blank" rel="noreferrer">{{ t('nav.vscodeDocs') }}</a>
       </nav>
       <button class="pill" @click="toggleLocale">{{ t('nav.switch') }}</button>
     </div>
