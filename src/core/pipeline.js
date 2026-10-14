@@ -6,6 +6,7 @@ import { ingest, parseText, toBaseURL } from './ingest.js';
 import { enrichAll } from './enrich.js';
 import { toOpenCode } from './adapters/opencode.js';
 import { toCherryStudio, cherryDeepLink } from './adapters/cherry.js';
+import { toVSCode } from './adapters/vscode.js';
 import { AppError } from './i18n.js';
 
 /**
@@ -17,10 +18,10 @@ import { AppError } from './i18n.js';
  * @property {'env'|'inline'|'none'} [apiKeyMode] 配置中 apiKey 的写法，默认 env
  */
 
-/** 支持的目标客户端 */
 export const TARGETS = {
   opencode: { label: 'OpenCode', filename: 'opencode.json', build: toOpenCode },
   cherry: { label: 'Cherry Studio', filename: 'cherry-studio-provider.json', build: toCherryStudio },
+  vscode: { label: 'VS Code Copilot', filename: 'chatLanguageModels.json', build: toVSCode },
 };
 
 /** 推断 provider id 时忽略的通用子域名 */
@@ -34,7 +35,9 @@ const GENERIC_LABELS = ['api', 'www', 'openai', 'llm', 'ai-api'];
 export function deriveProvider(baseURL) {
   try {
     const host = new URL(baseURL).hostname;
-    if (/^(localhost|127\.|0\.0\.0\.0|\[?::1)/.test(host)) return { id: 'local', name: 'Local' };
+    if (/^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1)/.test(host)) return { id: 'local', name: 'Local' };
+    // 其余 IP 字面量没有可用的域名标签
+    if (/^[\d.]+$|^\[/.test(host)) return { id: 'custom', name: 'Custom' };
     const labels = host.split('.').filter((l) => !GENERIC_LABELS.includes(l));
     const id = (labels.at(-2) || labels[0] || 'custom').toLowerCase();
     return { id, name: id[0].toUpperCase() + id.slice(1) };
@@ -43,16 +46,12 @@ export function deriveProvider(baseURL) {
   }
 }
 
-/**
- * 解析文本（JSON / YAML / OpenAPI）并转换为 RawModel 列表。
- * @param {string} text
- */
+/** @param {string} text JSON / YAML / OpenAPI */
 export async function ingestText(text) {
   return ingest(await parseText(text));
 }
 
 /**
- * 执行完整转换。
  * @param {object} args
  * @param {import('./ingest.js').RawModel[]} args.raws
  * @param {Provider} args.provider

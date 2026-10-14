@@ -24,11 +24,7 @@ function apiKeyValue({ apiKeyMode, apiKey, id }) {
   return `{env:${envVarFor(id)}}`;
 }
 
-/**
- * 单个模型的 OpenCode 配置。
- * @param {import('../enrich.js').NormalizedModel} m
- * @returns {object}
- */
+/** @param {import('../enrich.js').NormalizedModel} m */
 function toModelEntry(m) {
   const entry = { name: m.name };
   if (m.type === 'chat') {
@@ -45,7 +41,6 @@ function toModelEntry(m) {
 }
 
 /**
- * 生成完整的 opencode.json。
  * @param {import('../enrich.js').NormalizedModel[]} models
  * @param {import('../pipeline.js').Provider} provider
  * @returns {object}

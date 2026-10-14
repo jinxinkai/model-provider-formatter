@@ -23,8 +23,8 @@ test('output larger than context is clamped with a note', () => {
 
 // [id, type, vision, reasoning, variant names]
 const CASES = [
-  ['deepseek/deepseek-v4-pro', 'chat', false, 'hybrid', ['thinking', 'no-thinking']],
-  ['deepseek/deepseek-v4-flash-vision-exp', 'chat', true, 'hybrid', ['thinking', 'no-thinking']],
+  ['deepseek/deepseek-v4-pro', 'chat', false, 'hybrid', ['low', 'high', 'max']],
+  ['deepseek/deepseek-v4-flash-vision-exp', 'chat', true, 'hybrid', ['low', 'high', 'max']],
   ['deepseek/deepseek-v3.2-exp-thinking', 'chat', false, 'always', []],
   ['deepseek-r1', 'chat', false, 'always', []],
   ['deepseek-v3', 'chat', false, 'none', []],
@@ -35,7 +35,17 @@ const CASES = [
   ['qwen/qwen3.6-plus', 'chat', true, 'hybrid', ['thinking', 'no-thinking']],
   ['qwen3-coder-480b-a35b-instruct', 'chat', false, 'none', []],
   ['glm-4.6v', 'chat', true, 'hybrid', ['thinking', 'no-thinking']],
-  ['z-ai/glm-5.3', 'chat', false, 'hybrid', ['thinking', 'no-thinking']],
+  ['z-ai/glm-5.3', 'chat', false, 'always', ['low', 'high', 'max']],
+  ['glm-5.3-flash', 'chat', true, 'always', ['low', 'high', 'max']],
+  ['glm-5.2', 'chat', false, 'hybrid', ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']],
+  ['kimi-k3', 'chat', true, 'always', ['low', 'high', 'max']],
+  ['gpt-6-astra', 'chat', true, 'always', ['low', 'medium', 'high', 'xhigh', 'max']],
+  ['gpt-6-sol', 'chat', true, 'hybrid', ['none', 'low', 'medium', 'high', 'xhigh', 'max']],
+  ['gpt-5.6-terra', 'chat', true, 'hybrid', ['none', 'low', 'medium', 'high', 'xhigh', 'max']],
+  ['gpt-5.5', 'chat', true, 'hybrid', ['none', 'low', 'medium', 'high', 'xhigh']],
+  ['grok-4.7', 'chat', true, 'always', ['low', 'medium', 'high', 'xhigh']],
+  ['gemini-3.8-flash', 'chat', true, 'always', ['low', 'medium', 'high']],
+  ['step-5-preview', 'chat', false, 'always', ['low', 'medium', 'high']],
   ['moonshotai/kimi-k2-thinking', 'chat', false, 'always', []],
   ['kimi-k2', 'chat', false, 'none', []],
   ['moonshotai/kimi-k2.6', 'chat', true, 'hybrid', ['thinking', 'no-thinking']],
@@ -91,6 +101,34 @@ test('user overrides win over everything', () => {
   assert.deepEqual(m.variants, {});
   assert.equal(m.name, 'X');
   assert.equal(m.disabled, true);
+});
+
+test('upstream reasoning efforts beat inferred rule dialects', () => {
+  // gateway-declared efforts replace the thinking-type toggle of an inferred (doc-less) rule
+  const glm = e('glm-5.1', { reasoning: true, reasoningMode: 'hybrid', efforts: ['low', 'high', 'max'] });
+  assert.equal(glm.reasoning, 'hybrid');
+  assert.deepEqual(glm.variants, { low: { reasoningEffort: 'low' }, high: { reasoningEffort: 'high' }, max: { reasoningEffort: 'max' } });
+  // fixed effort → no variants, even where the rule would generate toggles
+  const kimi = e('kimi-k2.5', { reasoning: true, reasoningMode: 'always', efforts: [] });
+  assert.equal(kimi.reasoning, 'always');
+  assert.deepEqual(kimi.variants, {});
+});
+
+test('official-doc rules beat upstream values', () => {
+  // the gateway reports a truncated output, a fixed effort and no reasoning toggle for DeepSeek V4
+  const ds = e('deepseek-v4.1-flash', { context: 1000000, output: 128000, vision: false, reasoning: true, reasoningMode: 'always', efforts: ['high'] });
+  assert.deepEqual(ds.limits, { context: 1048576, output: 393216 });
+  assert.equal(ds.vision, true);
+  assert.equal(ds.reasoning, 'hybrid');
+  assert.deepEqual(Object.keys(ds.variants), ['low', 'high', 'max']);
+  assert.equal(ds.sources.context, 'doc:deepseek:v4');
+  assert.equal(ds.sources.vision, 'doc:deepseek:v4-flash');
+  // upstream still fills fields the doc rule leaves open (Grok 4.7 has no documented output cap)
+  const grok = e('grok-4.7', { context: 200000, output: 128000 });
+  assert.equal(grok.limits.context, 500000);
+  assert.equal(grok.sources.output, 'upstream');
+  // manual overrides still win
+  assert.equal(e('glm-5.3', {}, { context: 200000 }).limits.context, 200000);
 });
 
 test('upstream booleans override rules', () => {

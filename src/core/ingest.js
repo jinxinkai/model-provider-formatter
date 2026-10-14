@@ -14,6 +14,8 @@ import { AppError } from './i18n.js';
  * @property {number} [output] 最大输出
  * @property {boolean} [vision]
  * @property {boolean} [reasoning]
+ * @property {'always'|'hybrid'} [reasoningMode] 上游声明的推理模式
+ * @property {string[]} [efforts] 上游声明的 reasoning_effort 档位；[] 表示档位固定、不可选
  * @property {boolean} [toolCall]
  * @property {string} [type] 'chat' | 'embedding' | 'rerank' | 'image' | 'audio' | 'video'
  */
@@ -45,15 +47,10 @@ function firstPositive(...vals) {
   }
 }
 
-/**
- * 返回第一个布尔值。
- * @param {...unknown} vals
- * @returns {boolean | undefined}
- */
+/** @param {...unknown} vals */
 const firstBool = (...vals) => vals.find((v) => typeof v === 'boolean');
 
 /**
- * 读取上下文与输出上限。
  * @param {object} e 上游条目
  * @param {object} info LiteLLM model_info
  */
@@ -73,7 +70,6 @@ function readLimits(e, info) {
 }
 
 /**
- * 读取视觉 / 推理 / 工具调用能力。
  * @param {object} e 上游条目
  * @param {object} info LiteLLM model_info
  */
@@ -95,6 +91,21 @@ function readCapabilities(e, info) {
       caps.function_calling, caps.tool_call, caps.tools, e.supports_function_calling, info.supports_function_calling,
       params?.includes('tools'), capList?.includes('tools'),
     ),
+  };
+}
+
+/**
+ * 读取网关声明的推理档位（reasoning_efforts / always_reasoning / reasoning_can_disable / reasoning_fixed_effort）。
+ * @param {object} e 上游条目
+ * @returns {{ reasoningMode?: 'always'|'hybrid', efforts?: string[] }}
+ */
+function readReasoning(e) {
+  const list = Array.isArray(e.reasoning_efforts) ? e.reasoning_efforts.filter((x) => typeof x === 'string') : undefined;
+  return {
+    reasoningMode: e.reasoning_can_disable === true || e.always_reasoning === false ? 'hybrid'
+      : e.always_reasoning === true ? 'always' : undefined,
+    // 只有一个档位或固定档位时没有可选项
+    efforts: list ? (list.length > 1 ? list : []) : typeof e.reasoning_fixed_effort === 'string' ? [] : undefined,
   };
 }
 
@@ -133,6 +144,7 @@ export function normalizeEntry(entry) {
     ownedBy: entry.owned_by ? String(entry.owned_by) : undefined,
     ...readLimits(entry, info),
     ...readCapabilities(entry, info),
+    ...readReasoning(entry),
     type: readType(entry, info),
   };
   for (const k of Object.keys(raw)) if (raw[k] === undefined) delete raw[k];

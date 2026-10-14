@@ -2,6 +2,7 @@
 /** 步骤 2：提供商信息、API Key 写入方式与推理变体风格 */
 import { computed } from 'vue';
 import { envVarFor } from '@core/adapters/opencode.js';
+import { inputVarFor } from '@core/adapters/vscode.js';
 import { state, setProviderBase, setError } from '../store.js';
 import { t } from '../i18n.js';
 
@@ -30,10 +31,20 @@ function onBase(e) {
   }
 }
 
-/** API Key 写入方式对应的提示；env 模式的变量名只含 [A-Z0-9_]，可安全用于 v-html */
+/** 当前目标是否为 VS Code（apiKey 用输入变量而非环境变量） */
+const isVSCode = computed(() => state.target === 'vscode');
+
+/** @param {string} mode */
+const keyModeLabel = (mode) => t(mode === 'env' && isVSCode.value ? 'provider.keyMode.env.vscode' : `provider.keyMode.${mode}`);
+
+/** API Key 写入方式对应的提示；变量名只含 [A-Za-z0-9_${}:]，可安全用于 v-html */
 const hint = computed(() => {
-  if (p.apiKeyMode === 'env') return { html: t('provider.hint.envHtml', { var: envVarFor(p.id) }) };
-  if (p.apiKeyMode === 'none') return { text: t('provider.hint.none') };
+  if (p.apiKeyMode === 'env') {
+    return isVSCode.value
+      ? { html: t('provider.hint.vscode.envHtml', { var: inputVarFor(p.id) }) }
+      : { html: t('provider.hint.envHtml', { var: envVarFor(p.id) }) };
+  }
+  if (p.apiKeyMode === 'none') return { text: t(isVSCode.value ? 'provider.hint.vscode.none' : 'provider.hint.none') };
   return { text: t(state.apiKey ? 'provider.hint.inline' : 'provider.hint.noKey') };
 });
 </script>
@@ -57,7 +68,7 @@ const hint = computed(() => {
       <label class="field">
         <span>{{ t('provider.keyMode') }}</span>
         <select v-model="p.apiKeyMode">
-          <option v-for="m in KEY_MODES" :key="m" :value="m">{{ t(`provider.keyMode.${m}`) }}</option>
+          <option v-for="m in KEY_MODES" :key="m" :value="m">{{ keyModeLabel(m) }}</option>
         </select>
       </label>
       <label class="field">

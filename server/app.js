@@ -31,10 +31,6 @@ async function jsonErrors(ctx, next) {
   }
 }
 
-/**
- * /api 路由。
- * @returns {Router}
- */
 function apiRouter() {
   const router = new Router({ prefix: '/api' });
 
@@ -66,7 +62,6 @@ function cacheHeaders(res, path) {
 }
 
 /**
- * 创建 Koa 应用。
  * @param {{ staticDir?: string }} [opts] staticDir 为前端构建目录（dist/），省略时只提供 /api
  * @returns {Koa}
  */

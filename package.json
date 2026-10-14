@@ -1,7 +1,7 @@
 {
   "name": "model-provider-formatter",
   "version": "0.1.0",
-  "description": "Convert OpenAI-compatible /v1/models lists into ready-to-use client configs (OpenCode, Cherry Studio).",
+  "description": "Convert OpenAI-compatible /v1/models lists into ready-to-use client configs (OpenCode, Cherry Studio, VS Code Copilot).",
   "type": "module",
   "bin": {
     "mpf": "bin/cli.js"

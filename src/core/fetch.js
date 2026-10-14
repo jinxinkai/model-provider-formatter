@@ -1,7 +1,6 @@
 import { toBaseURL } from './ingest.js';
 import { AppError } from './i18n.js';
 
-/** 上游请求超时（毫秒） */
 const TIMEOUT_MS = 20000;
 
 /**
