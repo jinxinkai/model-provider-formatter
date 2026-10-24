@@ -32,6 +32,7 @@ CLI:
 node bin/cli.js -u https://api.example.com/v1 -k sk-xxx -o opencode.json
 node bin/cli.js -i models.json -b https://api.example.com/v1 -t cherry --report
 node bin/cli.js -u https://api.example.com/v1 -k sk-xxx -t vscode -o chatLanguageModels.json
+node bin/cli.js -i models.json -b https://api.example.com/v1 --apis chat,messages
 node bin/cli.js --help --lang en
 ```
 
@@ -63,12 +64,27 @@ input → ingest → enrich + knowledge → NormalizedModel → adapters → Web
 | `src/core/adapters/` | OpenCode / Cherry Studio / VS Code Copilot output |
 | `src/core/i18n.js` | Core messages and the translatable `AppError` |
 | `web/` | Vue 3 frontend; state in `store.js`, UI strings in `i18n.js` |
-| `server/app.js` | Koa: `GET /api/health`, `POST /api/models` (upstream proxy, errors follow `Accept-Language`), serves `dist/` |
+| `src/core/fetch.js` | Fetches `/models`; probes which APIs the upstream supports without a key |
+| `server/app.js` | Koa: `GET /api/health`, `POST /api/models` (upstream proxy plus API probe, errors follow `Accept-Language`), serves `dist/` |
 | `bin/cli.js` | Command line |
+
+## APIs
+
+Each chat model picks one request API: GPT / o-series use **Responses** (reasoning carries across turns), Claude uses **Messages** (thinking blocks and caching), everything else uses **Chat Completions**; gpt-oss stays on Chat Completions. When the upstream lacks the preferred API the model falls back to Chat Completions, and you can change it per model in the table.
+
+Which APIs the upstream supports: when models are fetched through the Koa proxy or the CLI `--url`, an empty keyless POST goes to `/responses` and `/messages` and is compared with a path that does not exist; a route that exists (401 / 400 and so on) counts as supported. Gateways that authenticate before routing return the same status everywhere, so they cannot be told apart and count as unsupported. Paste, File and the GitHub Pages build do not probe: tick the APIs under "Provider", or pass `--apis` to the CLI.
+
+| Client | Chat Completions | Responses | Messages |
+|---|---|---|---|
+| OpenCode | provider `npm: @ai-sdk/openai-compatible` | model `provider.npm: @ai-sdk/openai` | model `provider.npm: @ai-sdk/anthropic` |
+| VS Code Copilot | provider `apiType: chat-completions` | model `apiType: responses`, `statefulResponses: false` | model `apiType: messages` |
+| Cherry Studio | provider `type: openai` | split into `<id>-responses`, `type: openai-response` | split into `<id>-anthropic`, `type: anthropic` |
+
+A Cherry Studio provider speaks one API (the deep link `type`), and re-importing the same id replaces its endpoint, so the output is split into one provider and one deep link per API; the bundle JSON becomes `{ providers: [...] }`. VS Code assumes a Responses server keeps prior responses; third-party gateways usually do not, so `statefulResponses: false` sends the full history.
 
 ## Reasoning variants
 
-Variant contents are passed as request parameters to `@ai-sdk/openai-compatible`. Levels documented by the vendor win. For models without a doc-backed rule, levels listed by the upstream (`reasoning_efforts`, with `always_reasoning` / `reasoning_can_disable` / `reasoning_fixed_effort`) become `reasoningEffort` variants; a fixed or single level yields none. Otherwise they follow each vendor's dialect:
+For Chat Completions models, variant contents are passed as request parameters to `@ai-sdk/openai-compatible`. Levels documented by the vendor win. For models without a doc-backed rule, levels listed by the upstream (`reasoning_efforts`, with `always_reasoning` / `reasoning_can_disable` / `reasoning_fixed_effort`) become `reasoningEffort` variants; a fixed or single level yields none. Otherwise they follow each vendor's dialect:
 
 | Family | Parameter | Variants |
 |---|---|---|
@@ -80,12 +96,23 @@ Variant contents are passed as request parameters to `@ai-sdk/openai-compatible`
 
 Always-thinking and non-reasoning models get no variants. DeepSeek / GLM / Kimi reasoning models also get `interleaved: { field: "reasoning_content" }`.
 
+On the other APIs, variants use that SDK's parameters, matching OpenCode's built-in ones:
+
+| API | Model | Variant contents |
+|---|---|---|
+| Responses | effort-style | `reasoningEffort` + `reasoningSummary: "auto"` + `include: ["reasoning.encrypted_content"]` (with `store: false`, encrypted reasoning is what carries across turns) |
+| Messages | Claude 4.6+ / 5.x | `thinking: { type: "adaptive" }` + `effort` |
+| Messages | Claude Opus 4.5 | `thinking: { type: "enabled", budgetTokens }` + `effort` |
+| Messages | Earlier Claude | Manual budget only: `high` / `max` `budgetTokens` |
+
+On/off dialects (`thinking: { type }`, `enable_thinking`) apply to Chat Completions only.
+
 ## Notes
 
 - **Disabled models go to `blacklist`**: OpenCode's model schema rejects a `disabled` key. Disabled chat models stay in `models` and are listed in `blacklist`; non-chat models are omitted.
 - **API key** is written as `{env:<PROVIDER>_API_KEY}` by default; the web UI never stores the key.
-- **VS Code Copilot** uses the [Custom Endpoint provider](https://code.visualstudio.com/docs/agent-customization/language-models#_add-a-custom-endpoint-model) (`vendor: "customendpoint"`, Chat Completions API). Run **Chat: Manage Language Models** → Add Models → Custom Endpoint, then merge the generated object into the `chatLanguageModels.json` VS Code opens. The key is written as `${input:<provider>ApiKey}` by default so VS Code prompts for it instead of storing it in the file. Only enabled chat models are emitted; `maxInputTokens + maxOutputTokens` equals the context window, with output capped at half of it. Effort-style variants become `supportsReasoningEffort`; on/off thinking dialects have no VS Code equivalent and only set `thinking: true`.
-- **Cherry Studio deep link** only carries the provider connection and requires a key; model capabilities are in the bundle JSON.
+- **VS Code Copilot** uses the [Custom Endpoint provider](https://code.visualstudio.com/docs/agent-customization/language-models#_add-a-custom-endpoint-model) (`vendor: "customendpoint"`). The API is set per model (see APIs). Run **Chat: Manage Language Models** → Add Models → Custom Endpoint, then merge the generated object into the `chatLanguageModels.json` VS Code opens. The key is written as `${input:<provider>ApiKey}` by default so VS Code prompts for it instead of storing it in the file. Only enabled chat models are emitted; `maxInputTokens + maxOutputTokens` equals the context window, with output capped at half of it. Effort-style variants become `supportsReasoningEffort`, with `reasoningEffortFormat` matching the API; on/off thinking dialects have no VS Code equivalent and only set `thinking: true`.
+- **Cherry Studio deep link** only carries the provider connection and requires a key; model capabilities are in the bundle JSON. With several APIs there are several deep links; import each one.
 - `/api/models` forwards requests to arbitrary URLs — do not expose it publicly.
 
 ## Extending

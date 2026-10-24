@@ -39,6 +39,12 @@ function download() {
 
 /** Cherry Studio 一键导入必须带 API Key */
 const canOpenCherry = computed(() => Boolean(state.apiKey));
+
+const cherryHint = computed(() => {
+  if (!canOpenCherry.value) return t('output.hint.cherryNoKey');
+  const count = result.value.deepLinks.length;
+  return count > 1 ? t('output.hint.cherrySplit', { count }) : t('output.hint.cherry');
+});
 </script>
 
 <template>
@@ -57,10 +63,17 @@ const canOpenCherry = computed(() => Boolean(state.apiKey));
         <span class="hint" v-html="t(`output.hint.${state.target}Html`)"></span>
       </template>
       <template v-else>
-        <a class="btn btn-primary" :class="{ disabled: !canOpenCherry }" :href="canOpenCherry ? result.deepLink : undefined" :aria-disabled="!canOpenCherry">{{ t('output.openCherry') }}</a>
+        <a
+          v-for="d in result.deepLinks"
+          :key="d.id"
+          class="btn btn-primary"
+          :class="{ disabled: !canOpenCherry }"
+          :href="canOpenCherry ? d.link : undefined"
+          :aria-disabled="!canOpenCherry"
+        >{{ result.deepLinks.length > 1 ? t('output.openCherryAs', { name: d.name }) : t('output.openCherry') }}</a>
         <button class="btn btn-ghost" @click="copy">{{ t(copyKey) }}</button>
         <button class="btn btn-ghost" @click="download">{{ t('output.download') }}</button>
-        <span class="hint">{{ t(canOpenCherry ? 'output.hint.cherry' : 'output.hint.cherryNoKey') }}</span>
+        <span class="hint">{{ cherryHint }}</span>
       </template>
     </div>
 

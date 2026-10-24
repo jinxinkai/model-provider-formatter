@@ -87,6 +87,50 @@ test('variant payloads speak each vendor dialect', () => {
   assert.equal(e('deepseek/deepseek-v4-pro').interleaved, 'reasoning_content');
 });
 
+const ALL_APIS = ['chat', 'responses', 'messages'];
+const withApis = (id, apis = ALL_APIS, override) => enrichModel({ id }, override, { apis });
+
+test('api: GPT → Responses, Claude → Messages, others → Chat Completions', () => {
+  assert.equal(withApis('gpt-5.5').api, 'responses');
+  assert.equal(withApis('o3-mini').api, 'responses');
+  assert.equal(withApis('claude-sonnet-4.6').api, 'messages');
+  assert.equal(withApis('gpt-oss-120b').api, 'chat', 'open-weight models stay on Chat Completions');
+  assert.equal(withApis('glm-5.1').api, 'chat');
+  assert.equal(withApis('text-embedding-v4').api, 'chat', 'non-chat models never switch');
+  assert.equal(e('gpt-5.5').api, 'chat', 'only chat is assumed by default');
+});
+
+test('api: unsupported preference falls back to chat; overrides need a supported api', () => {
+  assert.equal(withApis('gpt-5.5', ['chat', 'messages']).api, 'chat');
+  assert.equal(withApis('claude-opus-4.6', ['chat', 'messages']).api, 'messages');
+  assert.equal(withApis('gpt-5.5', ALL_APIS, { api: 'chat' }).api, 'chat');
+  assert.equal(withApis('glm-5.1', ALL_APIS, { api: 'messages' }).api, 'messages');
+  assert.equal(withApis('glm-5.1', ['chat'], { api: 'messages' }).api, 'chat');
+});
+
+test('api: variants follow the SDK of the chosen api', () => {
+  assert.deepEqual(withApis('gpt-5.1').variants.high, { reasoningEffort: 'high', reasoningSummary: 'auto', include: ['reasoning.encrypted_content'] });
+  // Claude 4.6+ / 5.x: adaptive thinking + effort
+  const adaptive = { thinking: { type: 'adaptive', display: 'summarized' }, effort: 'high' };
+  assert.deepEqual(withApis('claude-opus-4.6').variants.high, adaptive);
+  assert.deepEqual(withApis('claude-fable-5').variants.high, adaptive);
+  // Opus 4.5: manual budget + effort
+  assert.deepEqual(withApis('claude-opus-4.5').variants.low, { thinking: { type: 'enabled', budgetTokens: 16000 }, effort: 'low' });
+  // earlier Claude: budget-only variants; dated ids are not mistaken for versions
+  for (const id of ['claude-sonnet-4.5', 'claude-haiku-4-5-20251001', 'claude-3-7-sonnet-20250219', 'claude-opus-4-20250514']) {
+    assert.deepEqual(Object.keys(withApis(id).variants), ['high', 'max'], id);
+  }
+  assert.deepEqual(withApis('claude-sonnet-4.5').variants.max, { thinking: { type: 'enabled', budgetTokens: 31999 } });
+  // effort style keeps the api dialect
+  assert.deepEqual(enrichModel({ id: 'gpt-5' }, {}, { apis: ALL_APIS, variantStyle: 'effort' }).variants.low, {
+    reasoningEffort: 'low', reasoningSummary: 'auto', include: ['reasoning.encrypted_content'],
+  });
+  // toggle dialects have no Messages equivalent
+  assert.deepEqual(withApis('glm-5.1', ALL_APIS, { api: 'messages' }).variants, {});
+  // interleaved reasoning_content is a Chat Completions field
+  assert.equal(withApis('deepseek/deepseek-v4-pro', ALL_APIS, { api: 'messages' }).interleaved, null);
+});
+
 test('variantStyle effort / off', () => {
   const effort = enrichModel({ id: 'glm-5.1' }, {}, { variantStyle: 'effort' });
   assert.deepEqual(Object.keys(effort.variants), ['low', 'medium', 'high']);

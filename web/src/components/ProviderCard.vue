@@ -1,9 +1,10 @@
 <script setup>
-/** 步骤 2：提供商信息、API Key 写入方式与推理变体风格 */
+/** 步骤 2：提供商信息、API Key 写入方式、推理变体风格与上游接口 */
 import { computed } from 'vue';
+import { APIS } from '@core/enrich.js';
 import { envVarFor } from '@core/adapters/opencode.js';
 import { inputVarFor } from '@core/adapters/vscode.js';
-import { state, setProviderBase, setError } from '../store.js';
+import { state, setProviderBase, setError, IS_STATIC } from '../store.js';
 import { t } from '../i18n.js';
 
 const p = state.provider;
@@ -29,6 +30,14 @@ function onBase(e) {
   } catch (err) {
     setError(err);
   }
+}
+
+/**
+ * 开关某个接口；chat 总是开启。
+ * @param {import('@core/enrich.js').Api} api
+ */
+function toggleApi(api) {
+  state.apis = APIS.filter((a) => (a === api ? !state.apis.includes(a) : state.apis.includes(a)));
 }
 
 /** 当前目标是否为 VS Code（apiKey 用输入变量而非环境变量） */
@@ -77,8 +86,23 @@ const hint = computed(() => {
           <option v-for="s in VARIANT_STYLES" :key="s" :value="s">{{ t(`provider.variants.${s}`) }}</option>
         </select>
       </label>
+      <div class="field span-2">
+        <span>{{ t('provider.apis') }}</span>
+        <div class="chips">
+          <button
+            v-for="api in APIS"
+            :key="api"
+            class="chip"
+            :class="{ on: state.apis.includes(api) }"
+            :aria-pressed="state.apis.includes(api)"
+            :disabled="api === 'chat'"
+            @click="toggleApi(api)"
+          >{{ t(`api.${api}`) }}</button>
+        </div>
+      </div>
     </div>
     <p v-if="hint.html" class="hint" v-html="hint.html"></p>
     <p v-else class="hint">{{ hint.text }}</p>
+    <p class="hint">{{ t(IS_STATIC ? 'provider.apisHintStatic' : 'provider.apisHint') }}</p>
   </section>
 </template>

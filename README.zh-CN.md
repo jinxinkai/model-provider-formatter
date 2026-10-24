@@ -32,6 +32,7 @@ GitHub Pages：<https://jinxinkai.github.io/model-provider-formatter/>。每次�
 node bin/cli.js -u https://api.example.com/v1 -k sk-xxx -o opencode.json
 node bin/cli.js -i models.json -b https://api.example.com/v1 -t cherry --report
 node bin/cli.js -u https://api.example.com/v1 -k sk-xxx -t vscode -o chatLanguageModels.json
+node bin/cli.js -i models.json -b https://api.example.com/v1 --apis chat,messages
 node bin/cli.js --help --lang zh
 ```
 
@@ -63,12 +64,27 @@ docker run -d -p 127.0.0.1:15178:15178 ghcr.io/jinxinkai/model-provider-formatte
 | `src/core/adapters/` | OpenCode / Cherry Studio / VS Code Copilot 输出 |
 | `src/core/i18n.js` | 核心文案与可翻译错误 `AppError` |
 | `web/` | Vue 3 前端；`store.js` 存状态，`i18n.js` 存界面文案 |
-| `server/app.js` | Koa：`GET /api/health`、`POST /api/models`（代理上游，按 `Accept-Language` 返回错误）、托管 `dist/` |
+| `src/core/fetch.js` | 拉取 `/models`；不带 Key 探测上游支持的接口 |
+| `server/app.js` | Koa：`GET /api/health`、`POST /api/models`（代理上游并探测接口，按 `Accept-Language` 返回错误）、托管 `dist/` |
 | `bin/cli.js` | 命令行 |
+
+## 接口
+
+每个对话模型选择一种请求接口：GPT / o 系列用 **Responses**（跨轮次保留推理），Claude 用 **Messages**（thinking 块与缓存），其余用 **Chat Completions**；gpt-oss 仍走 Chat Completions。上游不支持首选接口时回退到 Chat Completions，也可以在模型表格里逐个修改。
+
+上游支持哪些接口：经 Koa 代理或 CLI `--url` 拉取模型时，不带 Key 向 `/responses`、`/messages` 发空请求，与一个不存在的路径对照，路由存在（返回 401 / 400 等）即视为支持。鉴权先于路由的网关对所有路径返回同一状态码，无法区分，按不支持处理。粘贴、文件导入和 GitHub Pages 静态版不探测，需在「提供商」中手动勾选，CLI 用 `--apis` 指定。
+
+| 客户端 | Chat Completions | Responses | Messages |
+|---|---|---|---|
+| OpenCode | 提供商 `npm: @ai-sdk/openai-compatible` | 模型 `provider.npm: @ai-sdk/openai` | 模型 `provider.npm: @ai-sdk/anthropic` |
+| VS Code Copilot | 提供商 `apiType: chat-completions` | 模型 `apiType: responses`、`statefulResponses: false` | 模型 `apiType: messages` |
+| Cherry Studio | 提供商 `type: openai` | 拆出 `<id>-responses`，`type: openai-response` | 拆出 `<id>-anthropic`，`type: anthropic` |
+
+Cherry Studio 每个提供商只能用一种接口（DeepLink 的 `type`），同一 id 再次导入会覆盖接口配置，因此按接口拆成多个提供商，每个一条 DeepLink；导入包 JSON 变为 `{ providers: [...] }`。VS Code 默认假设 Responses 服务端保存历史，第三方网关通常不保存，所以写 `statefulResponses: false` 发送完整历史。
 
 ## 推理变体
 
-变体内容会作为请求参数传给 `@ai-sdk/openai-compatible`。官方文档写明的档位优先；没有官方规则的模型，若上游列出可用档位（`reasoning_efforts`，以及 `always_reasoning` / `reasoning_can_disable` / `reasoning_fixed_effort`），则据此生成 `reasoningEffort` 变体，档位固定或只有一个时不生成。否则按厂商方言生成：
+Chat Completions 模型的变体内容会作为请求参数传给 `@ai-sdk/openai-compatible`。官方文档写明的档位优先；没有官方规则的模型，若上游列出可用档位（`reasoning_efforts`，以及 `always_reasoning` / `reasoning_can_disable` / `reasoning_fixed_effort`），则据此生成 `reasoningEffort` 变体，档位固定或只有一个时不生成。否则按厂商方言生成：
 
 | 家族 | 参数 | 变体 |
 |---|---|---|
@@ -80,12 +96,23 @@ docker run -d -p 127.0.0.1:15178:15178 ghcr.io/jinxinkai/model-provider-formatte
 
 始终思考或不支持推理的模型不生成变体。DeepSeek / GLM / Kimi 推理模型额外写入 `interleaved: { field: "reasoning_content" }`。
 
+其他接口的变体按对应 SDK 的参数生成，与 OpenCode 内置写法一致：
+
+| 接口 | 模型 | 变体内容 |
+|---|---|---|
+| Responses | effort 类 | `reasoningEffort` + `reasoningSummary: "auto"` + `include: ["reasoning.encrypted_content"]`（`store: false` 时靠加密推理内容跨轮保留） |
+| Messages | Claude 4.6+ / 5.x | `thinking: { type: "adaptive" }` + `effort` |
+| Messages | Claude Opus 4.5 | `thinking: { type: "enabled", budgetTokens }` + `effort` |
+| Messages | 更早的 Claude | 只有手动预算：`high` / `max` 两档 `budgetTokens` |
+
+开关类方言（`thinking: { type }`、`enable_thinking`）只用于 Chat Completions。
+
 ## 注意事项
 
 - **禁用模型写入 `blacklist`**：OpenCode 模型 schema 不允许 `disabled` 字段。禁用的对话模型保留在 `models` 并列入 `blacklist`；非对话模型直接省略。
 - **API Key** 默认写成 `{env:<PROVIDER>_API_KEY}`；Web 界面不保存 Key。
-- **VS Code Copilot** 使用 [Custom Endpoint 提供商](https://code.visualstudio.com/docs/agent-customization/language-models#_add-a-custom-endpoint-model)（`vendor: "customendpoint"`，Chat Completions API）。运行 **Chat: Manage Language Models** → Add Models → Custom Endpoint，把生成的对象合并进 VS Code 打开的 `chatLanguageModels.json`。Key 默认写成 `${input:<provider>ApiKey}`，由 VS Code 提示输入，不落在文件里。只输出启用的对话模型；`maxInputTokens + maxOutputTokens` 等于上下文窗口，输出最多占一半。reasoning_effort 类变体映射为 `supportsReasoningEffort`；开关类思考方言在 VS Code 中没有对应项，只写 `thinking: true`。
-- **Cherry Studio DeepLink** 只能导入提供商连接信息且必须带 Key；模型能力标签在导入包 JSON 中。
+- **VS Code Copilot** 使用 [Custom Endpoint 提供商](https://code.visualstudio.com/docs/agent-customization/language-models#_add-a-custom-endpoint-model)（`vendor: "customendpoint"`）。接口按模型设置（见「接口」）。运行 **Chat: Manage Language Models** → Add Models → Custom Endpoint，把生成的对象合并进 VS Code 打开的 `chatLanguageModels.json`。Key 默认写成 `${input:<provider>ApiKey}`，由 VS Code 提示输入，不落在文件里。只输出启用的对话模型；`maxInputTokens + maxOutputTokens` 等于上下文窗口，输出最多占一半。effort 类变体映射为 `supportsReasoningEffort`，`reasoningEffortFormat` 与接口一致；开关类思考方言在 VS Code 中没有对应项，只写 `thinking: true`。
+- **Cherry Studio DeepLink** 只能导入提供商连接信息且必须带 Key；模型能力标签在导入包 JSON 中。用到多种接口时有多条 DeepLink，需逐个导入。
 - `/api/models` 会向任意地址转发请求，不要暴露到公网。
 
 ## 扩展

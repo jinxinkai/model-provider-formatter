@@ -8,7 +8,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { text } from 'node:stream/consumers';
 import { parseArgs } from 'node:util';
 import { ingest, toBaseURL } from '../src/core/ingest.js';
-import { fetchModels } from '../src/core/fetch.js';
+import { fetchModels, probeApis } from '../src/core/fetch.js';
+import { APIS } from '../src/core/enrich.js';
 import { convert, deriveProvider, ingestText, TARGETS } from '../src/core/pipeline.js';
 import { fill, localize } from '../src/core/i18n.js';
 
@@ -31,13 +32,16 @@ const MESSAGES = {
       --name <name>         提供商显示名
       --key-mode <mode>     env | inline | none：配置中 apiKey 的写法（默认 env → OpenCode {env:XXX_API_KEY} / VS Code \${input:xxxApiKey}）
       --variants <style>    auto | effort | off：推理变体的生成方式（默认 auto）
+      --apis <list>         上游支持的接口，逗号分隔：chat,responses,messages（默认：--url 时自动探测，否则只有 chat）
       --include-all         同时启用非对话模型（embedding / 图像 / 语音等）
       --report              在 stderr 打印每个模型的补全结果
       --lang <zh|en>        输出语言（默认读取 MPF_LANG 或系统语言）
   -h, --help`,
     noBaseURL: '无法确定 baseURL，请通过 --base-url 指定',
+    badApis: '--apis 只能包含 {apis}',
+    apis: '上游接口: {apis}',
     summary: '✓ {source}: {total} 个模型（启用 {enabled}）→ {target}',
-    deepLink: 'Cherry Studio 一键导入: {link}',
+    deepLink: 'Cherry Studio 一键导入 {name}: {link}',
     written: '已写入 {file}',
   },
   en: {
@@ -56,13 +60,16 @@ Options:
       --name <name>         Provider display name
       --key-mode <mode>     env | inline | none: how apiKey is written (default env → OpenCode {env:XXX_API_KEY} / VS Code \${input:xxxApiKey})
       --variants <style>    auto | effort | off: how reasoning variants are generated (default auto)
+      --apis <list>         APIs the upstream supports, comma-separated: chat,responses,messages (default: detected with --url, otherwise chat only)
       --include-all         Also enable non-chat models (embedding / image / audio …)
       --report              Print per-model enrichment results to stderr
       --lang <zh|en>        Output language (defaults to MPF_LANG or the system locale)
   -h, --help`,
     noBaseURL: 'Cannot determine baseURL; pass --base-url',
+    badApis: '--apis may only contain {apis}',
+    apis: 'Upstream APIs: {apis}',
     summary: '✓ {source}: {total} models ({enabled} enabled) → {target}',
-    deepLink: 'Cherry Studio one-click import: {link}',
+    deepLink: 'Cherry Studio one-click import for {name}: {link}',
     written: 'Written to {file}',
   },
 };
@@ -79,6 +86,7 @@ const { values: args } = parseArgs({
     name: { type: 'string' },
     'key-mode': { type: 'string', default: 'env' },
     variants: { type: 'string', default: 'auto' },
+    apis: { type: 'string' },
     'include-all': { type: 'boolean', default: false },
     report: { type: 'boolean', default: false },
     lang: { type: 'string' },
@@ -96,16 +104,28 @@ const lang = (args.lang || process.env.MPF_LANG || Intl.DateTimeFormat().resolve
 const msg = (key, params) => fill(MESSAGES[lang][key], params);
 
 /**
- * 读取模型列表：在线拉取或读取文件 / stdin。
+ * 读取模型列表：在线拉取（同时探测上游接口）或读取文件 / stdin。
  * @param {string} apiKey
- * @returns {Promise<{ models: import('../src/core/ingest.js').RawModel[], source: string, baseURL?: string }>}
+ * @returns {Promise<{ models: import('../src/core/ingest.js').RawModel[], source: string, baseURL?: string, apis?: import('../src/core/enrich.js').Api[] }>}
  */
 async function readInput(apiKey) {
   if (args.url) {
-    const { payload, baseURL } = await fetchModels(args.url, apiKey);
-    return { ...ingest(payload), baseURL };
+    const probe = args.apis ? undefined : probeApis(toBaseURL(args.url));
+    const [{ payload, baseURL }, apis] = await Promise.all([fetchModels(args.url, apiKey), probe]);
+    return { ...ingest(payload), baseURL, apis };
   }
   return ingestText(args.input === '-' ? await text(process.stdin) : await readFile(args.input, 'utf8'));
+}
+
+/**
+ * 解析 --apis；chat 总是包含在内。
+ * @returns {import('../src/core/enrich.js').Api[] | undefined}
+ */
+function parseApis() {
+  if (!args.apis) return undefined;
+  const list = args.apis.split(',').map((s) => s.trim()).filter(Boolean);
+  if (list.some((a) => !APIS.includes(a))) throw new Error(msg('badApis', { apis: APIS.join(', ') }));
+  return APIS.filter((a) => a === 'chat' || list.includes(a));
 }
 
 /**
@@ -114,7 +134,7 @@ async function readInput(apiKey) {
  */
 function printReport(models) {
   for (const m of models) {
-    const flags = [m.vision && 'vision', m.reasoning !== 'none' && `reasoning:${m.reasoning}`, m.toolCall && 'tools', m.disabled && 'DISABLED'];
+    const flags = [m.vision && 'vision', m.reasoning !== 'none' && `reasoning:${m.reasoning}`, m.toolCall && 'tools', m.api !== 'chat' && `api:${m.api}`, m.disabled && 'DISABLED'];
     console.error(`${m.id.padEnd(42)} ctx=${String(m.limits.context).padEnd(8)} out=${String(m.limits.output).padEnd(7)} ${flags.filter(Boolean).join(' ')}`);
   }
 }
@@ -125,7 +145,9 @@ async function main() {
     process.exit(args.help ? 0 : 1);
   }
   const apiKey = args.key || process.env.MPF_API_KEY || '';
+  const flagApis = parseApis();
   const input = await readInput(apiKey);
+  const apis = flagApis || input.apis || ['chat'];
 
   const baseURL = toBaseURL(args['base-url'] || input.baseURL);
   if (!baseURL) throw new Error(msg('noBaseURL'));
@@ -133,11 +155,12 @@ async function main() {
   const provider = { id: args['provider-id'] || guess.id, name: args.name || guess.name, baseURL, apiKey, apiKeyMode: args['key-mode'] };
   const overrides = args['include-all'] ? Object.fromEntries(input.models.map((m) => [m.id, { disabled: false }])) : {};
 
-  const result = convert({ raws: input.models, provider, target: args.target, overrides, variantStyle: args.variants });
+  const result = convert({ raws: input.models, provider, target: args.target, overrides, variantStyle: args.variants, apis });
   if (args.report) printReport(result.models);
+  console.error(msg('apis', { apis: apis.join(', ') }));
   const enabled = result.models.filter((m) => !m.disabled).length;
   console.error(msg('summary', { source: input.source, total: result.models.length, enabled, target: TARGETS[args.target].label }));
-  if (result.deepLink) console.error(msg('deepLink', { link: result.deepLink }));
+  for (const d of result.deepLinks || []) console.error(msg('deepLink', { name: d.name, link: d.link }));
 
   const json = JSON.stringify(result.config, null, 2) + '\n';
   if (!args.out) return process.stdout.write(json);

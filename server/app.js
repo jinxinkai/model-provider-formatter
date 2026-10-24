@@ -7,7 +7,8 @@ import Koa from 'koa';
 import { Router } from '@koa/router';
 import { bodyParser } from '@koa/bodyparser';
 import serve from 'koa-static';
-import { fetchModels } from '../src/core/fetch.js';
+import { fetchModels, probeApis } from '../src/core/fetch.js';
+import { toBaseURL } from '../src/core/ingest.js';
 import { t, localize } from '../src/core/i18n.js';
 
 /**
@@ -38,12 +39,15 @@ function apiRouter() {
     ctx.body = { ok: true };
   });
 
-  // 代理上游 GET /models，绕过浏览器 CORS；Key 只转发不存储
+  // 代理上游 GET /models，绕过浏览器 CORS；Key 只转发不存储。同时不带 Key 探测上游支持的接口
   router.post('/models', async (ctx) => {
     const { url, apiKey } = ctx.request.body || {};
     if (typeof url !== 'string' || !url.trim()) ctx.throw(400, t(langOf(ctx), 'api.missingUrl'));
     try {
-      ctx.body = await fetchModels(url, typeof apiKey === 'string' ? apiKey : '');
+      // 先校验地址，避免一个请求同步抛错后另一个的 rejection 无人处理
+      const baseURL = toBaseURL(url);
+      const [models, apis] = await Promise.all([fetchModels(url, typeof apiKey === 'string' ? apiKey : ''), probeApis(baseURL)]);
+      ctx.body = { ...models, apis };
     } catch (err) {
       ctx.throw(err.key === 'input.badUrl' ? 400 : 502, localize(err, langOf(ctx)), { expose: true });
     }

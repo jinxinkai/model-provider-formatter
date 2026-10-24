@@ -5,7 +5,7 @@
 import { ingest, parseText, toBaseURL } from './ingest.js';
 import { enrichAll } from './enrich.js';
 import { toOpenCode } from './adapters/opencode.js';
-import { toCherryStudio, cherryDeepLink } from './adapters/cherry.js';
+import { toCherryStudio, cherryDeepLinks } from './adapters/cherry.js';
 import { toVSCode } from './adapters/vscode.js';
 import { AppError } from './i18n.js';
 
@@ -58,17 +58,18 @@ export async function ingestText(text) {
  * @param {keyof TARGETS} [args.target]
  * @param {Record<string, import('./enrich.js').Override>} [args.overrides]
  * @param {'auto'|'effort'|'off'} [args.variantStyle]
- * @returns {{ models: import('./enrich.js').NormalizedModel[], config: object, filename: string, deepLink?: string }}
+ * @param {import('./enrich.js').Api[]} [args.apis] 上游支持的接口，默认只有 chat
+ * @returns {{ models: import('./enrich.js').NormalizedModel[], config: object, filename: string, deepLinks?: import('./adapters/cherry.js').DeepLink[] }}
  */
-export function convert({ raws, provider, target = 'opencode', overrides, variantStyle }) {
+export function convert({ raws, provider, target = 'opencode', overrides, variantStyle, apis }) {
   const t = TARGETS[target];
   if (!t) throw new AppError('convert.unknownTarget', { target });
-  const models = enrichAll(raws, { overrides, variantStyle });
+  const models = enrichAll(raws, { overrides, variantStyle, apis });
   const p = { ...provider, baseURL: toBaseURL(provider.baseURL) };
   return {
     models,
     config: t.build(models, p),
     filename: t.filename,
-    ...(target === 'cherry' && { deepLink: cherryDeepLink(p) }),
+    ...(target === 'cherry' && { deepLinks: cherryDeepLinks(models, p) }),
   };
 }
