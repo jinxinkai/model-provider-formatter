@@ -181,7 +181,9 @@ td .src { margin: 2px 0 0; justify-content: flex-end; display: flex; }
 }
 .chip.on { background: var(--soot); border-color: var(--soot); color: #fff; }
 .chip.override { box-shadow: 0 0 0 2px var(--sky); }
+.chip:disabled { cursor: default; }
 .rsel { width: auto; padding: 3px 8px; font-size: 12.5px; }
+.rsel.override { box-shadow: 0 0 0 2px var(--sky); }
 .variants { font-family: var(--font-mono); font-size: 11.5px; color: var(--warm); }
 .legend { font-size: 12px; margin: 12px 0 0; color: var(--ash); }
 

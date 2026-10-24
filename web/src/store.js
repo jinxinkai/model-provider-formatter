@@ -34,6 +34,8 @@ export const state = reactive({
   /** @type {Record<string, import('@core/enrich.js').Override>} */
   overrides: {},
   variantStyle: 'auto',
+  /** @type {import('@core/enrich.js').Api[]} 上游支持的接口；经 Koa 代理拉取时自动探测 */
+  apis: ['chat'],
   target: 'opencode',
   /** @type {Status} */
   status: { kind: '' },
@@ -49,6 +51,7 @@ export const result = computed(() =>
       target: state.target,
       overrides: state.overrides,
       variantStyle: state.variantStyle,
+      apis: state.apis,
     })
     : null,
 );
@@ -109,7 +112,7 @@ function loadModels({ models, source, baseURL }) {
 /**
  * 拉取上游模型列表：静态部署时浏览器直连，否则经 Koa 代理（绕过 CORS）。
  * @param {string} url
- * @returns {Promise<{ baseURL: string, payload: unknown }>}
+ * @returns {Promise<{ baseURL: string, payload: unknown, apis?: import('@core/enrich.js').Api[] }>} 静态部署时没有 apis
  */
 async function requestModels(url) {
   if (IS_STATIC) return fetchModels(url, state.apiKey);
@@ -132,7 +135,8 @@ export async function fetchFromApi() {
   state.loading = true;
   state.status = { kind: '', key: 'status.fetching' };
   try {
-    const { payload, baseURL } = await requestModels(url);
+    const { payload, baseURL, apis } = await requestModels(url);
+    if (apis) state.apis = apis;
     loadModels({ ...ingest(payload), baseURL });
   } catch (err) {
     setError(err);

@@ -65,6 +65,20 @@ const isOverridden = (field) => state.overrides[props.model.id]?.[field] !== und
       </select>
       <SourceBadge :source="model.sources.reasoning" />
     </td>
+    <td>
+      <select
+        v-if="model.type === 'chat'"
+        class="rsel"
+        :class="{ override: isOverridden('api') }"
+        :value="model.api"
+        :aria-label="t('col.api')"
+        :disabled="state.apis.length < 2"
+        @change="update({ api: $event.target.value })"
+      >
+        <option v-for="api in state.apis" :key="api" :value="api">{{ t(`api.${api}`) }}</option>
+      </select>
+      <span v-else class="hint">—</span>
+    </td>
     <td class="variants">{{ Object.keys(model.variants).join(' · ') || '—' }}</td>
   </tr>
 </template>

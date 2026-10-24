@@ -3,8 +3,16 @@
  * 规范见 https://code.visualstudio.com/docs/agent-customization/language-models#_add-a-custom-endpoint-model 。
  *
  * 文件是提供商数组，这里只生成一个 vendor: customendpoint 的条目。VS Code 没有禁用字段，
- * 因此只输出启用的对话模型；推理只支持 reasoning_effort，开关类方言（thinking.type 等）不映射。
+ * 因此只输出启用的对话模型；推理只支持 effort 档位，开关类方言（thinking.type 等）不映射。
+ * 接口按模型设置（模型级 apiType），url 写全接口路径。
  */
+
+/** 接口 → VS Code apiType / reasoningEffortFormat 与路径 */
+const API = {
+  chat: { type: 'chat-completions', path: '/chat/completions' },
+  responses: { type: 'responses', path: '/responses' },
+  messages: { type: 'messages', path: '/messages' },
+};
 
 /**
  * 由 provider id 生成 VS Code 输入变量，例如 my-provider → ${input:myProviderApiKey}。
@@ -29,12 +37,13 @@ function apiKeyValue({ apiKeyMode, apiKey, id }) {
 }
 
 /**
- * 变体全部是 reasoningEffort 时返回可选档位，供 VS Code 的 Thinking Effort 选择器使用。
+ * 变体全部带 effort 档位时返回可选档位，供 VS Code 的 Thinking Effort 选择器使用。
+ * OpenAI SDK 的参数名是 reasoningEffort，Anthropic SDK 是 effort；手动思考预算没有档位。
  * @param {Record<string, object>} variants
  * @returns {string[]}
  */
 function effortLevels(variants) {
-  const levels = Object.values(variants).map((v) => v.reasoningEffort);
+  const levels = Object.values(variants).map((v) => v.reasoningEffort ?? v.effort);
   return levels.length && levels.every(Boolean) ? levels : [];
 }
 
@@ -42,23 +51,28 @@ function effortLevels(variants) {
  * 单个模型的 VS Code 配置。maxInputTokens + maxOutputTokens 即上下文窗口；
  * 上游常把输出上限报成与上下文相同，因此输出最多占一半，避免输入预算被挤没。
  * @param {import('../enrich.js').NormalizedModel} m
- * @param {string} url
+ * @param {string} baseURL
  * @returns {object}
  */
-function toModelEntry(m, url) {
+function toModelEntry(m, baseURL) {
   const efforts = effortLevels(m.variants);
   const { context } = m.limits;
   const output = Math.min(m.limits.output, Math.floor(context / 2));
+  const api = API[m.api];
   return {
     id: m.id,
     name: m.name,
-    url,
+    // 写全 API 路径，避免 VS Code 自动补 /v1 时产生歧义
+    url: baseURL + api.path,
+    ...(m.api !== 'chat' && { apiType: api.type }),
+    // 第三方网关通常不保存历史响应，按无状态服务发送完整历史，避免 previous_response_id 找不到工具调用
+    ...(m.api === 'responses' && { statefulResponses: false }),
     toolCalling: m.toolCall,
     vision: m.vision,
     maxInputTokens: context - output,
     maxOutputTokens: output,
     thinking: m.reasoning !== 'none',
-    ...(efforts.length && { supportsReasoningEffort: efforts, reasoningEffortFormat: 'chat-completions' }),
+    ...(efforts.length && { supportsReasoningEffort: efforts, reasoningEffortFormat: api.type }),
   };
 }
 
@@ -68,8 +82,6 @@ function toModelEntry(m, url) {
  * @returns {object[]}
  */
 export function toVSCode(models, provider) {
-  // 写全 API 路径，避免 VS Code 自动补 /v1 时产生歧义
-  const url = `${provider.baseURL}/chat/completions`;
   const apiKey = apiKeyValue(provider);
   return [
     {
@@ -77,7 +89,7 @@ export function toVSCode(models, provider) {
       vendor: 'customendpoint',
       ...(apiKey && { apiKey }),
       apiType: 'chat-completions',
-      models: models.filter((m) => m.type === 'chat' && !m.disabled).map((m) => toModelEntry(m, url)),
+      models: models.filter((m) => m.type === 'chat' && !m.disabled).map((m) => toModelEntry(m, provider.baseURL)),
     },
   ];
 }

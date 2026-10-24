@@ -12,7 +12,7 @@ const FILTERS = {
   other: (m) => m.type !== 'chat',
   disabled: (m) => m.disabled,
 };
-const COLUMNS = ['context', 'output', 'caps', 'reasoning', 'variants'];
+const COLUMNS = ['context', 'output', 'caps', 'reasoning', 'api', 'variants'];
 
 const query = ref('');
 const filter = ref('all');
@@ -64,7 +64,7 @@ const meta = computed(() => {
         <tbody>
           <ModelRow v-for="m in visible" :key="m.id" :model="m" />
           <tr v-if="!visible.length">
-            <td colspan="7" class="hint empty">{{ t('models.empty') }}</td>
+            <td colspan="8" class="hint empty">{{ t('models.empty') }}</td>
           </tr>
         </tbody>
       </table>

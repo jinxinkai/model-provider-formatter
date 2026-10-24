@@ -4,7 +4,11 @@
  *
  * OpenCode 模型 schema 为 additionalProperties: false 且没有 disabled 字段，
  * 因此禁用的对话模型保留在 models 中并写入 provider 级 blacklist；禁用的非对话模型直接省略。
+ * provider 用 @ai-sdk/openai-compatible（Chat Completions），走其他接口的模型用 provider.npm 单独指定 SDK。
  */
+
+/** 非 Chat Completions 接口对应的 AI SDK 包；两者都在 options.baseURL 后追加 /responses、/messages */
+const API_NPM = { responses: '@ai-sdk/openai', messages: '@ai-sdk/anthropic' };
 
 /**
  * 由 provider id 生成环境变量名，例如 qnaigc → QNAIGC_API_KEY。
@@ -35,7 +39,9 @@ function toModelEntry(m) {
     entry.modalities = { input: m.vision ? ['text', 'image'] : ['text'], output: ['text'] };
   }
   entry.limit = { context: m.limits.context, output: m.limits.output };
-  entry.options = { store: false };
+  if (API_NPM[m.api]) entry.provider = { npm: API_NPM[m.api] };
+  // store 是 OpenAI 参数，Anthropic SDK 没有
+  if (m.api !== 'messages') entry.options = { store: false };
   if (Object.keys(m.variants).length) entry.variants = m.variants;
   return entry;
 }

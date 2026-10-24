@@ -16,6 +16,7 @@ import { RULES, DEFAULTS } from './knowledge.js';
  * @property {boolean} toolCall
  * @property {boolean} coder
  * @property {'none'|'always'|'hybrid'} reasoning
+ * @property {Api} api 请求所用的接口
  * @property {string | null} interleaved 多轮对话需回传的思考字段
  * @property {Record<string, object>} variants 推理变体名 → 请求参数
  * @property {boolean} disabled
@@ -31,8 +32,17 @@ import { RULES, DEFAULTS } from './knowledge.js';
  * @property {boolean} [vision]
  * @property {boolean} [toolCall]
  * @property {'none'|'always'|'hybrid'} [reasoning]
+ * @property {Api} [api] 上游不支持该接口时忽略
  * @property {boolean} [disabled]
  */
+
+/**
+ * @typedef {'chat'|'responses'|'messages'} Api
+ * chat → /chat/completions；responses → OpenAI /responses；messages → Anthropic /messages
+ */
+
+/** 所有接口；chat 是兜底，任何上游都支持 */
+export const APIS = ['chat', 'responses', 'messages'];
 
 const RULE_FIELDS = ['type', 'family', 'context', 'output', 'vision', 'reasoning', 'control', 'efforts', 'toolCall', 'interleaved', 'coder'];
 
@@ -105,14 +115,71 @@ export function prettyName(id) {
 const THINK_VARIANT = { enabled: 'thinking', disabled: 'no-thinking', auto: 'auto' };
 
 /**
- * 生成 OpenCode 推理变体（变体内容会合并进请求参数）。
- * @param {{ type: string, reasoning: string, control?: string, efforts?: Array<string|boolean> }} m
+ * 模型首选的接口：GPT / o 系列用 Responses（跨轮保留推理），Claude 用 Messages（thinking 块与缓存），其余用 Chat Completions。
+ * gpt-oss 是开源权重，网关多由第三方推理框架托管，仍走 Chat Completions。
+ * @param {string} id
+ * @param {string} family
+ * @returns {Api}
+ */
+function preferredApi(id, family) {
+  if (family === 'openai' && !/gpt-oss/i.test(id)) return 'responses';
+  if (family === 'anthropic') return 'messages';
+  return 'chat';
+}
+
+/**
+ * Claude 的思考控制方式（同 OpenCode 的 @ai-sdk/anthropic 变体）：
+ * 4.6 起（含 5.x）adaptive thinking + effort；Opus 4.5 手动预算 + effort；更早的只有手动预算。
+ * @param {string} id
+ * @returns {'adaptive'|'budget-effort'|'budget'}
+ */
+function claudeThinking(id) {
+  const lid = id.toLowerCase();
+  if (/fable|mythos/.test(lid)) return 'adaptive';
+  // 版本号是单个数字，避免把 claude-3-7-sonnet-20250219 的日期当成版本
+  const named = /(opus|sonnet|haiku)-(\d)(?:[.-](\d)(?!\d))?(?!\d)/.exec(lid);
+  const numbered = /claude-(\d)(?:[.-](\d)(?!\d))?-(opus|sonnet|haiku)/.exec(lid);
+  const [family, major, minor] = named ? [named[1], +named[2], +(named[3] ?? 0)] : numbered ? [numbered[3], +numbered[1], +(numbered[2] ?? 0)] : [];
+  if (!family || major > 4 || (major === 4 && minor >= 6)) return 'adaptive';
+  return family === 'opus' && major === 4 && minor === 5 ? 'budget-effort' : 'budget';
+}
+
+/** @ai-sdk/anthropic 手动思考预算的上限 */
+const ANTHROPIC_BUDGET_MAX = 32000;
+
+/**
+ * Messages 接口下 Claude 的推理变体（@ai-sdk/anthropic 参数）。
+ * @param {string} id
+ * @param {string[]} efforts
+ * @param {number} output
+ * @returns {Record<string, object>}
+ */
+function anthropicVariants(id, efforts, output) {
+  const mode = claudeThinking(id);
+  if (mode === 'budget') {
+    const max = Math.min(output, ANTHROPIC_BUDGET_MAX) - 1;
+    if (max < 1024) return {};
+    const budget = (tokens) => ({ thinking: { type: 'enabled', budgetTokens: tokens } });
+    return { high: budget(Math.floor((max + 1) / 2)), max: budget(max) };
+  }
+  const thinking = mode === 'adaptive' ? { type: 'adaptive', display: 'summarized' } : { type: 'enabled', budgetTokens: Math.min(16000, output - 1) };
+  return Object.fromEntries(efforts.map((e) => [e, e === 'none' ? { thinking: { type: 'disabled' } } : { thinking, effort: e }]));
+}
+
+/** Responses 接口不在服务端存储会话（store: false），需要回传加密推理内容才能跨轮保留 */
+const responsesEffort = (e) => ({ reasoningEffort: e, reasoningSummary: 'auto', include: ['reasoning.encrypted_content'] });
+
+/**
+ * 生成 OpenCode 推理变体（变体内容会合并进请求参数，按接口使用不同 SDK 的参数名）。
+ * @param {{ id: string, type: string, reasoning: string, api: Api, output: number, control?: string, efforts?: Array<string|boolean> }} m
  * @param {'auto'|'effort'|'off'} [style] auto 按厂商方言；effort 统一 reasoning_effort；off 不生成
  * @returns {Record<string, object>}
  */
-function buildVariants({ type, reasoning, control, efforts = [] }, style = 'auto') {
+function buildVariants({ id, type, reasoning, api, output, control, efforts = [] }, style = 'auto') {
   if (style === 'off' || type !== 'chat' || reasoning === 'none') return {};
-  if (style === 'effort') return Object.fromEntries(['low', 'medium', 'high'].map((e) => [e, { reasoningEffort: e }]));
+  if (style === 'effort') [control, efforts] = ['effort', ['low', 'medium', 'high']];
+  if (api === 'messages') return control === 'effort' ? anthropicVariants(id, efforts, output) : {};
+  if (api === 'responses') return control === 'effort' ? Object.fromEntries(efforts.map((e) => [e, responsesEffort(e)])) : {};
   if (control === 'effort') return Object.fromEntries(efforts.map((e) => [e, { reasoningEffort: e }]));
   // 开关类控制只对可切换思考的模型有意义
   if (reasoning !== 'hybrid') return {};
@@ -137,7 +204,7 @@ function upstreamReasoning(raw, ruleMode) {
 /**
  * @param {import('./ingest.js').RawModel} raw
  * @param {Override} [override]
- * @param {{ variantStyle?: 'auto'|'effort'|'off' }} [opts]
+ * @param {{ variantStyle?: 'auto'|'effort'|'off', apis?: Api[] }} [opts] apis 为上游支持的接口，默认只有 chat
  * @returns {NormalizedModel}
  */
 export function enrichModel(raw, override = {}, opts = {}) {
@@ -178,18 +245,25 @@ export function enrichModel(raw, override = {}, opts = {}) {
 
   if (!isChat && override.disabled === undefined) notes.push({ key: 'note.nonChat', params: { type } });
 
+  const family = matched.values.family || (raw.ownedBy && !GENERIC_OWNERS.includes(raw.ownedBy) ? raw.ownedBy : 'other');
+  const apis = opts.apis || ['chat'];
+  // 首选接口上游不支持时回退到 Chat Completions
+  const api = !isChat ? 'chat' : apis.includes(override.api) ? override.api : [preferredApi(raw.id, family), 'chat'].find((a) => apis.includes(a)) || 'chat';
+
   return {
     id: raw.id,
     name: override.name || raw.name || prettyName(raw.id),
-    family: matched.values.family || (raw.ownedBy && !GENERIC_OWNERS.includes(raw.ownedBy) ? raw.ownedBy : 'other'),
+    family,
     type,
     limits: { context, output },
     vision: pick('vision', raw.vision, rule.vision, d.vision),
     toolCall: pick('toolCall', raw.toolCall, rule.toolCall, d.toolCall),
     coder: Boolean(rule.coder),
     reasoning,
-    interleaved: reasoning === 'none' ? null : rule.interleaved || null,
-    variants: buildVariants({ type, reasoning, control, efforts }, opts.variantStyle),
+    api,
+    // interleaved 是 Chat Completions 的 reasoning_content 回传；Responses / Messages 自带推理块
+    interleaved: reasoning === 'none' || api !== 'chat' ? null : rule.interleaved || null,
+    variants: buildVariants({ id: raw.id, type, reasoning, api, output, control, efforts }, opts.variantStyle),
     disabled: override.disabled ?? !isChat,
     sources,
     notes,
@@ -198,9 +272,9 @@ export function enrichModel(raw, override = {}, opts = {}) {
 
 /**
  * @param {import('./ingest.js').RawModel[]} raws
- * @param {{ overrides?: Record<string, Override>, variantStyle?: 'auto'|'effort'|'off' }} [opts]
+ * @param {{ overrides?: Record<string, Override>, variantStyle?: 'auto'|'effort'|'off', apis?: Api[] }} [opts]
  * @returns {NormalizedModel[]}
  */
-export function enrichAll(raws, { overrides = {}, variantStyle } = {}) {
-  return raws.map((r) => enrichModel(r, overrides[r.id], { variantStyle }));
+export function enrichAll(raws, { overrides = {}, variantStyle, apis } = {}) {
+  return raws.map((r) => enrichModel(r, overrides[r.id], { variantStyle, apis }));
 }

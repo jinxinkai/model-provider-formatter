@@ -14,6 +14,8 @@ let upstreamURL;
 before(async () => {
   // Fake upstream /v1/models that checks the forwarded bearer token.
   upstream = createServer((req, res) => {
+    // Messages route exists (rejects the keyless probe), Responses does not
+    if (req.url === '/v1/messages') return res.writeHead(401).end('{"error":"no key"}');
     if (req.url !== '/v1/models') return res.writeHead(404).end();
     if (req.headers.authorization !== 'Bearer sk-test') return res.writeHead(401).end('{"error":"no key"}');
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ object: 'list', data: [{ id: 'glm-5.1', object: 'model' }] }));
@@ -49,6 +51,7 @@ test('POST /api/models proxies upstream with the bearer token', async () => {
   const body = await res.json();
   assert.equal(body.baseURL, upstreamURL);
   assert.equal(body.payload.data[0].id, 'glm-5.1');
+  assert.deepEqual(body.apis, ['chat', 'messages']);
 });
 
 test('POST /api/models surfaces upstream errors as 502', async () => {

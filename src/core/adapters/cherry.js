@@ -3,7 +3,19 @@
  *
  * DeepLink（cherrystudio://providers/api-keys?v=1&data=<base64(JSON)>）只能携带提供商连接信息且必须带 apiKey，
  * 见 CherryHQ/cherry-studio providersImport.ts；模型能力标签放在导入包中供对照。
+ *
+ * DeepLink 的 type 决定提供商唯一的接口（useProviderDeepLinkImport.ts），同一 id 再次导入会覆盖接口配置，
+ * 因此模型用到几种接口就拆成几个提供商，id 加后缀区分。
  */
+
+import { APIS } from '../enrich.js';
+
+/** 接口 → Cherry Studio 提供商类型（同时是模型的 endpoint_type）与 id / 名称后缀 */
+const API_PROVIDER = {
+  chat: { type: 'openai', suffix: '', label: '' },
+  responses: { type: 'openai-response', suffix: '-responses', label: ' (Responses)' },
+  messages: { type: 'anthropic', suffix: '-anthropic', label: ' (Anthropic)' },
+};
 
 /** family → Cherry Studio 分组名 */
 const FAMILY_LABEL = {
@@ -35,16 +47,40 @@ const cherryHost = (baseURL) => (baseURL.endsWith('/') ? baseURL : `${baseURL}/`
  */
 const base64 = (str) => btoa(String.fromCharCode(...new TextEncoder().encode(str)));
 
-/** @param {import('../pipeline.js').Provider} provider */
-export function cherryDeepLink(provider) {
-  const data = {
-    id: provider.id,
-    baseUrl: cherryHost(provider.baseURL),
-    apiKey: provider.apiKey || '',
-    name: provider.name || provider.id,
-    type: 'openai',
-  };
-  return `cherrystudio://providers/api-keys?v=1&data=${encodeURIComponent(base64(JSON.stringify(data)))}`;
+/**
+ * @typedef {object} DeepLink
+ * @property {import('../enrich.js').Api} api
+ * @property {string} id
+ * @property {string} name
+ * @property {string} link
+ */
+
+/**
+ * 按接口把启用的模型分组；没有启用的模型时仍保留 Chat Completions 提供商。
+ * @param {import('../enrich.js').NormalizedModel[]} models
+ * @param {import('../pipeline.js').Provider} provider
+ * @returns {Array<{ api: import('../enrich.js').Api, id: string, name: string, type: string, models: import('../enrich.js').NormalizedModel[] }>}
+ */
+function groupByApi(models, provider) {
+  const enabled = models.filter((m) => !m.disabled);
+  const apis = APIS.filter((api) => enabled.some((m) => m.api === api));
+  return (apis.length ? apis : ['chat']).map((api) => {
+    const { type, suffix, label } = API_PROVIDER[api];
+    return { api, id: provider.id + suffix, name: (provider.name || provider.id) + label, type, models: enabled.filter((m) => m.api === api) };
+  });
+}
+
+/**
+ * 每个接口一条 DeepLink。
+ * @param {import('../enrich.js').NormalizedModel[]} models
+ * @param {import('../pipeline.js').Provider} provider
+ * @returns {DeepLink[]}
+ */
+export function cherryDeepLinks(models, provider) {
+  return groupByApi(models, provider).map(({ api, id, name, type }) => {
+    const data = { id, baseUrl: cherryHost(provider.baseURL), apiKey: provider.apiKey || '', name, type };
+    return { api, id, name, link: `cherrystudio://providers/api-keys?v=1&data=${encodeURIComponent(base64(JSON.stringify(data)))}` };
+  });
 }
 
 /**
@@ -55,25 +91,26 @@ export function cherryDeepLink(provider) {
  */
 export function toCherryStudio(models, provider) {
   return {
-    provider: {
-      id: provider.id,
-      type: 'openai',
-      name: provider.name || provider.id,
+    providers: groupByApi(models, provider).map((g) => ({
+      id: g.id,
+      type: g.type,
+      name: g.name,
       apiKey: provider.apiKeyMode === 'inline' ? provider.apiKey || '' : '',
       apiHost: cherryHost(provider.baseURL),
       enabled: true,
       isSystem: false,
-      models: models.filter((m) => !m.disabled).map((m) => {
+      models: g.models.map((m) => {
         const type = cherryTypes(m);
         return {
           id: m.id,
-          provider: provider.id,
+          provider: g.id,
           name: m.name,
           group: FAMILY_LABEL[m.family] || m.family,
           type,
           capabilities: type.map((t) => ({ type: t, isUserSelected: true })),
+          endpoint_type: g.type,
         };
       }),
-    },
+    })),
   };
 }
